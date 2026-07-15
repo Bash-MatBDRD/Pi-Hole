@@ -59,15 +59,36 @@ interface StoreShape {
 }
 
 const DEFAULT_DEVICES = [
-  { id: "light.salon_led", name: "LED Salon", type: "light", state: "on", room: "Salon", attributes: { brightness: 75, color_temp: "warm", power_w: 12 } },
-  { id: "light.cuisine_principal", name: "Cuisine Plafonnier", type: "light", state: "off", room: "Cuisine", attributes: { brightness: 0, color_temp: "daylight", power_w: 0 } },
-  { id: "cover.salon_volet", name: "Volet Roulant Salon", type: "cover", state: "open", room: "Salon", attributes: { current_position: 100 } },
-  { id: "cover.chambre_store", name: "Store Chambre", type: "cover", state: "closed", room: "Chambre", attributes: { current_position: 0 } },
-  { id: "climate.thermostat_salon", name: "Thermostat Principal", type: "climate", state: "heat", room: "Salon", attributes: { current_temperature: 19.5, temperature: 21.0, hvac_mode: "heat" } },
-  { id: "switch.prise_tv", name: "Prise TV & Consoles", type: "switch", state: "on", room: "Salon", attributes: { power_w: 125.4, today_energy_kwh: 1.2 } },
-  { id: "switch.machine_cafe", name: "Cafetière", type: "switch", state: "off", room: "Cuisine", attributes: { power_w: 0, today_energy_kwh: 0.4 } },
-  { id: "media_player.spotify_salon", name: "Enceinte Salon (Spotify)", type: "media_player", state: "playing", room: "Salon", attributes: { volume_level: 0.4, media_title: "Bohemian Rhapsody", media_artist: "Queen", media_duration: 354, media_position: 120 } },
-  { id: "camera.entree_secure", name: "Caméra Allée & Entrée", type: "camera", state: "idle", room: "Extérieur", attributes: { motion_detected: false, fps: 15 } },
+  // Salon
+  { id: "light.salon_led",           name: "Barre LED Salon",          type: "light",        state: "on",      room: "Salon",           attributes: { brightness: 75,  color_temp: "warm",    power_w: 12  } },
+  { id: "cover.salon_volet",         name: "Volet Roulant Salon",      type: "cover",        state: "open",    room: "Salon",           attributes: { current_position: 100 } },
+  { id: "climate.thermostat_salon",  name: "Thermostat Salon",         type: "climate",      state: "heat",    room: "Salon",           attributes: { current_temperature: 19.5, temperature: 21.0 } },
+  { id: "switch.prise_tv",           name: "Prise TV & Consoles",      type: "switch",       state: "on",      room: "Salon",           attributes: { power_w: 125.4, today_energy_kwh: 1.2 } },
+  { id: "media_player.spotify_salon",name: "Enceinte Salon (Spotify)", type: "media_player", state: "playing", room: "Salon",           attributes: { volume_level: 0.4, media_title: "Bohemian Rhapsody", media_artist: "Queen", media_duration: 354, media_position: 120 } },
+  // Cuisine
+  { id: "light.cuisine_plafond",     name: "Plafonnier Cuisine",       type: "light",        state: "off",     room: "Cuisine",         attributes: { brightness: 0,   color_temp: "daylight", power_w: 0 } },
+  { id: "switch.machine_cafe",       name: "Cafetière",                type: "switch",       state: "off",     room: "Cuisine",         attributes: { power_w: 0, today_energy_kwh: 0.4 } },
+  // Chambre Mathieu
+  { id: "light.chambre_mathieu",     name: "Lumière Chambre Mathieu",  type: "light",        state: "off",     room: "Chambre Mathieu", attributes: { brightness: 0,   color_temp: "warm",    power_w: 0  } },
+  { id: "cover.chambre_mathieu",     name: "Store Chambre Mathieu",    type: "cover",        state: "closed",  room: "Chambre Mathieu", attributes: { current_position: 0 } },
+  { id: "media_player.spotify_mathieu", name: "Spotify Mathieu",       type: "media_player", state: "idle",    room: "Chambre Mathieu", attributes: { volume_level: 0.3 } },
+  // Chambre Parental
+  { id: "light.chambre_parental",    name: "Lumière Chambre Parental", type: "light",        state: "off",     room: "Chambre Parental",attributes: { brightness: 0,   color_temp: "warm",    power_w: 0  } },
+  { id: "cover.chambre_parental",    name: "Volet Chambre Parental",   type: "cover",        state: "closed",  room: "Chambre Parental",attributes: { current_position: 0 } },
+  // Chambre Laurent
+  { id: "light.chambre_laurent",     name: "Lumière Chambre Laurent",  type: "light",        state: "off",     room: "Chambre Laurent", attributes: { brightness: 0,   color_temp: "daylight",power_w: 0  } },
+  // Chambre Nicolas
+  { id: "light.chambre_nicolas",     name: "Lumière Chambre Nicolas",  type: "light",        state: "off",     room: "Chambre Nicolas", attributes: { brightness: 0,   color_temp: "daylight",power_w: 0  } },
+  // Salle de bain
+  { id: "light.sdb_miroir",          name: "Miroir Lumineux SdB",      type: "light",        state: "off",     room: "Salle de bain",   attributes: { brightness: 0,   color_temp: "cool",    power_w: 0  } },
+  // Garage
+  { id: "switch.prise_garage",       name: "Prise Garage",             type: "switch",       state: "off",     room: "Garage",          attributes: { power_w: 0, today_energy_kwh: 0.0 } },
+  { id: "cover.porte_garage",        name: "Porte de Garage",          type: "cover",        state: "closed",  room: "Garage",          attributes: { current_position: 0 } },
+  // Jardin
+  { id: "camera.jardin",             name: "Caméra Jardin",            type: "camera",       state: "idle",    room: "Jardin",          attributes: { motion_detected: false, fps: 15 } },
+  { id: "switch.prise_jardin",       name: "Prise Extérieure",         type: "switch",       state: "off",     room: "Jardin",          attributes: { power_w: 0, today_energy_kwh: 0.0 } },
+  // Couloir (en bas)
+  { id: "light.couloir_bas",         name: "Lumière Couloir",          type: "light",        state: "off",     room: "Couloir (en bas)",attributes: { brightness: 0,   color_temp: "daylight",power_w: 0  } },
 ];
 
 function defaultStore(): StoreShape {

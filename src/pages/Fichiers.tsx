@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
-  Folder, File, Download, Upload, Trash2, Share2, ArrowLeft, RefreshCw,
+  Folder, Download, Upload, Trash2, Share2, ArrowLeft, RefreshCw,
   Server, Copy, Check, AlertTriangle, HardDrive,
+  FileText, FileImage, FileVideo, FileArchive, FileCode, File,
 } from "lucide-react";
 import axios from "axios";
 
@@ -16,6 +17,26 @@ function formatSize(bytes: number) {
   let i = 0; let val = bytes;
   while (val >= 1024 && i < units.length - 1) { val /= 1024; i++; }
   return `${val.toFixed(val < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+}
+
+function formatDate(d: string | null) {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
+function FileIcon({ name }: { name: string }) {
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  if (["jpg","jpeg","png","gif","webp","svg","bmp"].includes(ext))
+    return <FileImage className="h-4 w-4 text-pink-400 shrink-0" />;
+  if (["mp4","mkv","avi","mov","wmv","webm"].includes(ext))
+    return <FileVideo className="h-4 w-4 text-purple-400 shrink-0" />;
+  if (["zip","tar","gz","rar","7z","bz2"].includes(ext))
+    return <FileArchive className="h-4 w-4 text-amber-400 shrink-0" />;
+  if (["js","ts","tsx","jsx","py","sh","json","yml","yaml","toml","env","html","css","xml"].includes(ext))
+    return <FileCode className="h-4 w-4 text-emerald-400 shrink-0" />;
+  if (["txt","md","pdf","doc","docx","xls","xlsx","csv"].includes(ext))
+    return <FileText className="h-4 w-4 text-blue-400 shrink-0" />;
+  return <File className="h-4 w-4 text-gray-500 shrink-0" />;
 }
 
 export default function Fichiers() {
@@ -185,16 +206,17 @@ export default function Fichiers() {
         ) : (
           <div className="divide-y" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
             {entries.map((entry) => (
-              <div key={entry.path} className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.02] group">
+              <div key={entry.path} className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.02] group transition-colors">
                 <button
                   onClick={() => entry.isDirectory ? openDir(entry.path) : undefined}
                   className={`flex items-center gap-2.5 flex-1 min-w-0 text-left ${entry.isDirectory ? "cursor-pointer" : "cursor-default"}`}>
                   {entry.isDirectory
                     ? <Folder className="h-4 w-4 text-indigo-400 shrink-0" />
-                    : <File className="h-4 w-4 text-gray-500 shrink-0" />}
+                    : <FileIcon name={entry.name} />}
                   <span className="text-xs text-gray-200 truncate">{entry.name}</span>
                 </button>
-                <span className="text-[10px] text-gray-600 font-mono w-16 text-right shrink-0">{entry.isDirectory ? "" : formatSize(entry.sizeBytes)}</span>
+                <span className="text-[10px] text-gray-700 font-mono w-20 text-right shrink-0 hidden sm:block">{formatDate(entry.modifiedAt)}</span>
+                <span className="text-[10px] text-gray-600 font-mono w-16 text-right shrink-0">{entry.isDirectory ? "—" : formatSize(entry.sizeBytes)}</span>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                   {!entry.isDirectory && (
                     <>

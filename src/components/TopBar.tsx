@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Bell, Lock, User, Sliders, RefreshCw, HardDrive, Home } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { getThemeColor, getLogoStyle, getLetterStyle, getContainerShape, getFontClass } from "../lib/theme";
@@ -35,6 +35,16 @@ export default function TopBar({ username, onLock, onLogout, haConnected, botOnl
   const time  = useClock();
   const { color, style } = useTheme();
   const navigate = useNavigate();
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
 
   const hours   = time.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   const seconds = time.getSeconds().toString().padStart(2, "0");
@@ -102,6 +112,7 @@ export default function TopBar({ username, onLock, onLogout, haConnected, botOnl
       {/* Dropdown menu */}
       {menuOpen && (
         <div
+          ref={menuRef}
           className="absolute left-4 top-12 w-60 rounded-2xl shadow-2xl z-50 p-3 space-y-1"
           style={{ background: "rgba(7,7,15,0.97)", border: "1px solid rgba(255,255,255,0.08)", backdropFilter: "blur(16px)" }}
         >

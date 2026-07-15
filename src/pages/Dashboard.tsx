@@ -9,7 +9,7 @@ import axios from "axios";
 
 interface Device { id: string; name: string; type: string; state: string; room: string; attributes: any; }
 interface ZimaStats { name: string; available: boolean; cpu: { usage: number; temperature: number }; ram: { used: number; total: number; usage: number }; disk?: { usage: number; used: number; total: number }; }
-interface SystemStats { hosts: ZimaStats[]; zima1: ZimaStats; zima2: ZimaStats; discordBot: { name: string; status: string; ping: number; guilds: number; commandsHandled: number; }; }
+interface SystemStats { hosts: ZimaStats[]; discordBot: { name: string; status: string; ping: number; guilds: number; commandsHandled: number; }; }
 interface DiscordLog { timestamp: string; user: string; command: string; response: string; }
 interface ActivityLog { timestamp: string; category: string; action: string; details?: string; }
 
@@ -209,11 +209,11 @@ export default function Dashboard() {
                   <span className="text-sm font-bold text-white">Serveurs ZimaOS</span>
                 </div>
                 <span className="text-[9px] text-gray-700 font-mono">
-                  {[stats.zima1, stats.zima2].filter(z => z?.available !== false).length} / 2 en ligne
+                  {stats.hosts.filter(z => z?.available !== false).length} / {stats.hosts.length} en ligne
                 </span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {[stats.zima1, stats.zima2].map((z) => {
+                {stats.hosts.map((z) => {
                   if (!z) return null;
                   const unavailable = z.available === false;
                   return (

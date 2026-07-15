@@ -46,6 +46,14 @@ export default function Discord() {
   const formatDate = (ts: string) =>
     new Date(ts).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
 
+  // Stable color per username
+  const userColor = (user: string) => {
+    const colors = ["#818cf8","#34d399","#f59e0b","#f472b6","#38bdf8","#a78bfa","#fb923c"];
+    let hash = 0;
+    for (let i = 0; i < user.length; i++) hash = user.charCodeAt(i) + ((hash << 5) - hash);
+    return colors[Math.abs(hash) % colors.length];
+  };
+
   return (
     <div className="p-5 space-y-5 max-w-5xl mx-auto">
       {/* Header */}
@@ -131,21 +139,25 @@ export default function Discord() {
               Aucun journal disponible
             </div>
           ) : (
-            logs.map((log, i) => (
-              <div key={i} className="px-4 py-2 hover:bg-white/2 transition-colors border-b"
-                style={{ borderColor: "rgba(255,255,255,0.03)" }}>
-                <div className="flex items-start gap-3">
-                  <span className="text-gray-700 shrink-0">{formatDate(log.timestamp)} {formatTime(log.timestamp)}</span>
-                  <span className="text-indigo-400 shrink-0 font-semibold">{log.user}</span>
-                  <div className="min-w-0 flex-1">
-                    {log.command && (
-                      <div className="text-amber-500/80 truncate mb-0.5">$ {log.command}</div>
-                    )}
-                    <div className="text-emerald-400/80 truncate">{log.response}</div>
+            logs.map((log, i) => {
+              const uc = userColor(log.user);
+              return (
+                <div key={i} className="px-4 py-2 hover:bg-white/[0.02] transition-colors border-b"
+                  style={{ borderColor: "rgba(255,255,255,0.03)" }}>
+                  <div className="flex items-start gap-3">
+                    <span className="text-gray-700 shrink-0 w-28 text-right">{formatDate(log.timestamp)} {formatTime(log.timestamp)}</span>
+                    <span className="shrink-0 font-bold px-1.5 py-0.5 rounded text-[10px]"
+                      style={{ color: uc, background: `${uc}15` }}>{log.user}</span>
+                    <div className="min-w-0 flex-1">
+                      {log.command && (
+                        <div className="text-amber-400/70 truncate mb-0.5 text-[10px]">$ {log.command}</div>
+                      )}
+                      <div className="text-emerald-400/80 truncate text-[10px]">{log.response}</div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
