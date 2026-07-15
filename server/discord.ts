@@ -620,7 +620,10 @@ export async function startDiscordBot(): Promise<void> {
 
   client.once(Events.ClientReady, (c) => {
     console.log(`[NexusBot] ✅ Connecté en tant que ${c.user.tag} — ${c.guilds.cache.size} serveur(s)`);
-    c.user.setActivity("ta maison · .aide", { type: ActivityType.Watching });
+    c.user.setPresence({
+      activities: [{ name: "Config ZimaOS", type: ActivityType.Playing }],
+      status: "dnd",
+    });
     store.setDiscordConfig({ botName: c.user.username, status: "online" });
     store.addDiscordLog({
       timestamp: new Date().toISOString(),
