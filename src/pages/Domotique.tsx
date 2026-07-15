@@ -16,27 +16,37 @@ interface HAConfig { url: string; token: string; isConnected: boolean; }
 // ── Room metadata ─────────────────────────────────────────────────────────────
 function roomIcon(room: string) {
   const r = room.toLowerCase();
-  if (r.includes("salon") || r.includes("living")) return "🛋";
-  if (r.includes("cuisine") || r.includes("kitchen")) return "🍳";
-  if (r.includes("chambre") || r.includes("bedroom")) return "🛏";
-  if (r.includes("salle de bain") || r.includes("bathroom")) return "🚿";
-  if (r.includes("bureau") || r.includes("office")) return "💻";
+  if (r.includes("salon") || r.includes("living"))                      return "🛋";
+  if (r.includes("cuisine") || r.includes("kitchen"))                   return "🍳";
+  if (r.includes("salle de bain") || r.includes("bathroom"))            return "🚿";
+  if (r.includes("toilette") || r.includes("wc"))                       return "🚽";
+  if (r.includes("dressing"))                                            return "👗";
+  if (r.includes("chambre") || r.includes("bedroom"))                   return "🛏";
   if (r.includes("jardin") || r.includes("extérieur") || r.includes("outdoor")) return "🌿";
   if (r.includes("couloir") || r.includes("hall") || r.includes("entrée")) return "🚪";
-  if (r.includes("garage")) return "🚗";
-  if (r.includes("général") || r.includes("general")) return "🏠";
+  if (r.includes("garage"))                                              return "🚗";
+  if (r.includes("bureau") || r.includes("office"))                     return "💻";
+  if (r.includes("général") || r.includes("general"))                   return "🏠";
   return "📦";
 }
 
 function roomColor(room: string) {
   const r = room.toLowerCase();
-  if (r.includes("salon")) return { main: "#f59e0b", bg: "rgba(245,158,11,0.07)", border: "rgba(245,158,11,0.18)" };
-  if (r.includes("cuisine")) return { main: "#f97316", bg: "rgba(249,115,22,0.07)", border: "rgba(249,115,22,0.18)" };
-  if (r.includes("chambre")) return { main: "#a855f7", bg: "rgba(168,85,247,0.07)", border: "rgba(168,85,247,0.18)" };
-  if (r.includes("salle de bain")) return { main: "#06b6d4", bg: "rgba(6,182,212,0.07)", border: "rgba(6,182,212,0.18)" };
-  if (r.includes("bureau")) return { main: "#6366f1", bg: "rgba(99,102,241,0.07)", border: "rgba(99,102,241,0.18)" };
-  if (r.includes("jardin") || r.includes("extérieur")) return { main: "#22c55e", bg: "rgba(34,197,94,0.07)", border: "rgba(34,197,94,0.18)" };
-  return { main: "#64748b", bg: "rgba(100,116,139,0.07)", border: "rgba(100,116,139,0.18)" };
+  if (r.includes("salon"))                                    return { main: "#f59e0b", bg: "rgba(245,158,11,0.07)",  border: "rgba(245,158,11,0.18)"  };
+  if (r.includes("cuisine"))                                  return { main: "#f97316", bg: "rgba(249,115,22,0.07)",  border: "rgba(249,115,22,0.18)"  };
+  if (r.includes("salle de bain"))                            return { main: "#06b6d4", bg: "rgba(6,182,212,0.07)",   border: "rgba(6,182,212,0.18)"   };
+  if (r.includes("toilette") || r.includes("wc"))            return { main: "#38bdf8", bg: "rgba(56,189,248,0.07)",  border: "rgba(56,189,248,0.18)"  };
+  if (r.includes("dressing"))                                 return { main: "#f472b6", bg: "rgba(244,114,182,0.07)", border: "rgba(244,114,182,0.18)" };
+  if (r.includes("chambre parental") || r.includes("parental")) return { main: "#c084fc", bg: "rgba(192,132,252,0.07)", border: "rgba(192,132,252,0.18)" };
+  if (r.includes("chambre mathieu"))                          return { main: "#818cf8", bg: "rgba(129,140,248,0.07)", border: "rgba(129,140,248,0.18)" };
+  if (r.includes("chambre nicolas"))                          return { main: "#34d399", bg: "rgba(52,211,153,0.07)",  border: "rgba(52,211,153,0.18)"  };
+  if (r.includes("chambre laurent"))                          return { main: "#fb923c", bg: "rgba(251,146,60,0.07)",  border: "rgba(251,146,60,0.18)"  };
+  if (r.includes("chambre"))                                  return { main: "#a855f7", bg: "rgba(168,85,247,0.07)",  border: "rgba(168,85,247,0.18)"  };
+  if (r.includes("jardin") || r.includes("extérieur"))        return { main: "#22c55e", bg: "rgba(34,197,94,0.07)",   border: "rgba(34,197,94,0.18)"   };
+  if (r.includes("couloir") || r.includes("entrée"))          return { main: "#94a3b8", bg: "rgba(148,163,184,0.07)", border: "rgba(148,163,184,0.18)" };
+  if (r.includes("garage"))                                   return { main: "#78716c", bg: "rgba(120,113,108,0.07)", border: "rgba(120,113,108,0.18)" };
+  if (r.includes("bureau"))                                   return { main: "#6366f1", bg: "rgba(99,102,241,0.07)",  border: "rgba(99,102,241,0.18)"  };
+  return                                                               { main: "#64748b", bg: "rgba(100,116,139,0.07)", border: "rgba(100,116,139,0.18)" };
 }
 
 const TYPE_LABEL: Record<string, string> = {
