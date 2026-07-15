@@ -16,6 +16,9 @@ import Discord    from "./pages/Discord";
 import ZimaOS     from "./pages/ZimaOS";
 import Fichiers   from "./pages/Fichiers";
 import Settings   from "./pages/Settings";
+import Meteo      from "./pages/Meteo";
+import Reseau     from "./pages/Reseau";
+import Notes      from "./pages/Notes";
 
 import { getThemeColor, getLogoStyle, getLetterStyle, getContainerShape, getFontClass } from "./lib/theme";
 
@@ -250,6 +253,9 @@ function AppLayout({ onLock, onLogout, username }: {
               <Route path="/discord"   element={<Discord />} />
               <Route path="/zimaos"    element={<ZimaOS />} />
               <Route path="/fichiers"  element={<Fichiers />} />
+              <Route path="/meteo"     element={<Meteo />} />
+              <Route path="/reseau"    element={<Reseau />} />
+              <Route path="/notes"     element={<Notes />} />
               <Route path="/settings"  element={<Settings />} />
               <Route path="*"          element={<Navigate to="/dashboard" replace />} />
             </Routes>

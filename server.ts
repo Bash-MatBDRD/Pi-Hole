@@ -12,6 +12,7 @@ import {
 import * as store from "./server/store";
 import { addHost, removeHost } from "./server/store";
 import { startDiscordBot, getBotStats } from "./server/discord";
+import { execRemote, isHostConfigured } from "./server/hosts";
 
 dotenv.config();
 
@@ -503,6 +504,159 @@ app.get("/api/home-assistant/camera-proxy/:entity_id", async (req, res) => {
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
+});
+
+// ── API - MÉTÉO (Open-Meteo — gratuit, sans clé) ─────────────────────────────
+app.get("/api/meteo", async (req, res) => {
+  const { latitude, longitude, city, timezone } = store.getMeteoConfig();
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
+    `&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation` +
+    `&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum` +
+    `&forecast_days=7&timezone=${encodeURIComponent(timezone)}&wind_speed_unit=kmh`;
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return res.status(502).json({ error: "Open-Meteo indisponible" });
+    const d = await r.json() as any;
+    const now = new Date().getHours();
+    const hourlyStart = d.hourly.time.findIndex((t: string) => new Date(t).getHours() === now && new Date(t).toDateString() === new Date().toDateString());
+    const hSlice = hourlyStart >= 0 ? hourlyStart : 0;
+    res.json({
+      city,
+      current: {
+        temp:      d.current.temperature_2m,
+        feelsLike: d.current.apparent_temperature,
+        humidity:  d.current.relative_humidity_2m,
+        windSpeed: d.current.wind_speed_10m,
+        code:      d.current.weather_code,
+        precip:    d.current.precipitation,
+      },
+      hourly: d.hourly.time.slice(hSlice, hSlice + 24).map((t: string, i: number) => ({
+        time: t,
+        temp: d.hourly.temperature_2m[hSlice + i],
+        code: d.hourly.weather_code[hSlice + i],
+      })),
+      daily: d.daily.time.map((t: string, i: number) => ({
+        date:   t,
+        code:   d.daily.weather_code[i],
+        max:    d.daily.temperature_2m_max[i],
+        min:    d.daily.temperature_2m_min[i],
+        precip: d.daily.precipitation_sum[i] ?? 0,
+      })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: `Erreur météo : ${err.message}` });
+  }
+});
+
+app.get("/api/meteo/search", async (req, res) => {
+  const q = String(req.query.q || "").trim();
+  if (!q) return res.json({ results: [] });
+  try {
+    const r = await fetch(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=fr&format=json`,
+      { signal: AbortSignal.timeout(6000) }
+    );
+    const d = await r.json() as any;
+    const results = (d.results || []).map((x: any) => ({
+      name:    [x.name, x.admin1, x.country].filter(Boolean).join(", "),
+      country: x.country_code || "",
+      lat: x.latitude,
+      lng: x.longitude,
+      tz:  x.timezone || "auto",
+    }));
+    res.json({ results });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/meteo/config", (req, res) => {
+  const { latitude, longitude, city, timezone } = req.body;
+  const cfg = store.setMeteoConfig({ latitude, longitude, city, timezone });
+  store.logActivity("settings", `Météo : ville changée → ${city}`);
+  res.json({ success: true, config: cfg });
+});
+
+// ── API - NOTES ───────────────────────────────────────────────────────────────
+app.get("/api/notes", (req, res) => {
+  res.json({ notes: store.getNotes() });
+});
+
+app.post("/api/notes", (req, res) => {
+  const { title = "", content, color = "indigo", pinned = false } = req.body;
+  if (!content?.trim()) return res.status(400).json({ error: "content requis" });
+  const note = store.addNote({ title: title.trim(), content: content.trim(), color, pinned });
+  store.logActivity("notes", `Note créée : ${title || "Sans titre"}`);
+  res.json(note);
+});
+
+app.put("/api/notes/:id", (req, res) => {
+  const { title, content, color, pinned } = req.body;
+  const patch: any = {};
+  if (title   !== undefined) patch.title   = String(title).trim();
+  if (content !== undefined) patch.content = String(content).trim();
+  if (color   !== undefined) patch.color   = String(color);
+  if (pinned  !== undefined) patch.pinned  = Boolean(pinned);
+  const note = store.updateNote(req.params.id, patch);
+  if (!note) return res.status(404).json({ error: "Note introuvable" });
+  res.json(note);
+});
+
+app.delete("/api/notes/:id", (req, res) => {
+  const ok = store.deleteNote(req.params.id);
+  if (!ok) return res.status(404).json({ error: "Note introuvable" });
+  store.logActivity("notes", "Note supprimée");
+  res.json({ success: true });
+});
+
+// ── API - RÉSEAU (ping des services et hôtes) ─────────────────────────────────
+app.get("/api/reseau", async (req, res) => {
+  async function checkUrl(name: string, url: string, opts: RequestInit = {}): Promise<{
+    name: string; ok: boolean; latency: number; statusCode?: number; error?: string;
+  }> {
+    const t = Date.now();
+    try {
+      const r = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(5000), ...opts });
+      return { name, ok: r.ok || r.status < 500, latency: Date.now() - t, statusCode: r.status };
+    } catch (err: any) {
+      return { name, ok: false, latency: Date.now() - t, error: err.message };
+    }
+  }
+
+  const haConfig = store.getHaConfig();
+  const hosts = getHosts();
+
+  const [internet, discordApi, haCheck] = await Promise.all([
+    checkUrl("Internet (Cloudflare)", "https://1.1.1.1"),
+    checkUrl("Discord API", "https://discord.com/api/v10/gateway"),
+    haConfig.url
+      ? checkUrl("Home Assistant", `${haConfig.url.replace(/\/$/, "")}/api/`,
+          haConfig.token ? { headers: { Authorization: `Bearer ${haConfig.token}` } } : {})
+      : Promise.resolve({ name: "Home Assistant", ok: false, latency: 0, error: "Non configuré" }),
+  ]);
+
+  const hostsStatus = await Promise.all(hosts.map(async (h) => {
+    const pub = safeHostPublic(h);
+    if (h.isLocal) {
+      return { ...pub, ok: true, latency: 0, method: "local", note: "Hôte du panel (local)" };
+    }
+    if (!isHostConfigured(h)) {
+      return { ...pub, ok: null, latency: 0, method: "ssh", error: "SSH non configuré" };
+    }
+    const t = Date.now();
+    try {
+      await execRemote(h, "echo ok");
+      return { ...pub, ok: true, latency: Date.now() - t, method: "ssh" };
+    } catch (err: any) {
+      return { ...pub, ok: false, latency: Date.now() - t, method: "ssh", error: "SSH inaccessible" };
+    }
+  }));
+
+  res.json({
+    services: [internet, discordApi, haCheck],
+    hosts: hostsStatus,
+    checkedAt: new Date().toISOString(),
+  });
 });
 
 // Configure Vite integration for Full-stack

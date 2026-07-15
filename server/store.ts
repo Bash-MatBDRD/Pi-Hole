@@ -48,6 +48,23 @@ export interface DiscordLogEntry {
   response: string;
 }
 
+export interface Note {
+  id: string;
+  title: string;
+  content: string;
+  color: string; // "indigo" | "emerald" | "amber" | "rose" | "cyan" | "purple"
+  pinned: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface MeteoConfig {
+  latitude: number;
+  longitude: number;
+  city: string;
+  timezone: string;
+}
+
 interface StoreShape {
   haConfig: { url: string; token: string; isConnected: boolean };
   discordConfig: { token: string; botName: string; prefix: string; status: string };
@@ -56,6 +73,8 @@ interface StoreShape {
   hosts: HostRecord[];
   activityLog: ActivityEntry[];
   lastCacheCleanup: number;
+  notes: Note[];
+  meteoConfig: MeteoConfig;
 }
 
 const DEFAULT_DEVICES = [
@@ -99,7 +118,9 @@ function defaultStore(): StoreShape {
       token: "",
       isConnected: false,
     },
-    discordConfig: { token: "", botName: "NexusBot", prefix: "!", status: "online" },
+    discordConfig: { token: "", botName: "NexusBot", prefix: ".", status: "online" },
+    notes: [],
+    meteoConfig: { latitude: 48.8534, longitude: 2.3488, city: "Paris", timezone: "Europe/Paris" },
     devices: DEFAULT_DEVICES,
     discordLogs: [
       { timestamp: new Date(now - 3600000).toISOString(), user: "Mathieu", command: "/ha status", response: "✅ Home Assistant: Connecté | 9 appareils détectés." },
@@ -153,6 +174,34 @@ function persist() {
 export function getHaConfig() { return load().haConfig; }
 export function setHaConfig(next: Partial<StoreShape["haConfig"]>) {
   const s = load(); s.haConfig = { ...s.haConfig, ...next }; persist(); return s.haConfig;
+}
+
+// ── Notes ─────────────────────────────────────────────────────────────────────
+export function getNotes(): Note[] { return load().notes; }
+export function addNote(input: Omit<Note, "id" | "createdAt" | "updatedAt">): Note {
+  const s = load();
+  const note: Note = { ...input, id: crypto.randomBytes(8).toString("hex"), createdAt: Date.now(), updatedAt: Date.now() };
+  s.notes.unshift(note); persist(); return note;
+}
+export function updateNote(id: string, patch: Partial<Omit<Note, "id" | "createdAt">>): Note | null {
+  const s = load();
+  const note = s.notes.find(n => n.id === id);
+  if (!note) return null;
+  Object.assign(note, patch, { updatedAt: Date.now() });
+  persist(); return note;
+}
+export function deleteNote(id: string): boolean {
+  const s = load();
+  const before = s.notes.length;
+  s.notes = s.notes.filter(n => n.id !== id);
+  if (s.notes.length < before) { persist(); return true; }
+  return false;
+}
+
+// ── Météo config ──────────────────────────────────────────────────────────────
+export function getMeteoConfig(): MeteoConfig { return load().meteoConfig; }
+export function setMeteoConfig(next: Partial<MeteoConfig>) {
+  const s = load(); s.meteoConfig = { ...s.meteoConfig, ...next }; persist(); return s.meteoConfig;
 }
 
 // ── Discord config ───────────────────────────────────────────────────────────

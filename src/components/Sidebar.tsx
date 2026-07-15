@@ -3,6 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Home, Music, MessageSquare, Server, FolderOpen,
   Settings, Lock, LogOut, ChevronRight, Pin, PinOff,
+  Cloud, Network, StickyNote,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { getThemeColor, getLogoStyle, getLetterStyle, getContainerShape, getFontClass } from "../lib/theme";
@@ -32,8 +33,21 @@ const NAV_GROUPS = [
     label: "Système",
     items: [
       { to: "/zimaos",   icon: Server,      label: "ZimaOS Diagnostic" },
+      { to: "/reseau",   icon: Network,     label: "Réseau" },
       { to: "/fichiers", icon: FolderOpen,  label: "Fichiers" },
-      { to: "/settings", icon: Settings,    label: "Réglages" },
+    ],
+  },
+  {
+    label: "Quotidien",
+    items: [
+      { to: "/meteo", icon: Cloud,       label: "Météo" },
+      { to: "/notes", icon: StickyNote,  label: "Notes" },
+    ],
+  },
+  {
+    label: "Réglages",
+    items: [
+      { to: "/settings", icon: Settings, label: "Réglages" },
     ],
   },
 ];
