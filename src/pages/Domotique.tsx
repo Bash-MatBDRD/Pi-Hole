@@ -550,57 +550,125 @@ export default function Domotique() {
 
       {/* Connection status banner */}
       {!haConfig.isConnected && (
-        <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs"
-          style={{ background: "rgba(245,158,11,0.05)", border: "1px solid rgba(245,158,11,0.15)" }}>
-          <WifiOff className="h-4 w-4 text-amber-500 shrink-0" />
-          <span className="text-amber-500/80">Mode démo — configurez l'URL et le token pour vous connecter à votre vrai HA.</span>
-          <button onClick={() => setConfigOpen(true)}
-            className="ml-auto px-2 py-1 rounded-lg text-[10px] font-bold text-amber-400 transition-all hover:bg-amber-500/10">
-            Configurer →
-          </button>
+        <div className="rounded-xl overflow-hidden"
+          style={{ background: "rgba(245,158,11,0.04)", border: "1px solid rgba(245,158,11,0.14)" }}>
+          <div className="flex items-center gap-3 px-4 py-3">
+            <div className="p-1.5 rounded-lg" style={{ background: "rgba(245,158,11,0.1)" }}>
+              <WifiOff className="h-3.5 w-3.5 text-amber-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-amber-400/90">Mode démo — données simulées</p>
+              <p className="text-[10px] text-amber-600/70 mt-0.5 leading-relaxed">
+                Configurez l'URL et le token Long-Lived pour piloter votre vrai Home Assistant.
+              </p>
+            </div>
+            <button onClick={() => setConfigOpen(true)}
+              className="shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold text-amber-300 transition-all hover:bg-amber-500/10"
+              style={{ border: "1px solid rgba(245,158,11,0.2)" }}>
+              Configurer
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Config panel */}
+      {/* Config modal overlay */}
       {configOpen && (
-        <form onSubmit={connectHA} className="rounded-2xl p-4 space-y-3"
-          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-white">Connexion Home Assistant</h3>
-            <button type="button" onClick={() => setConfigOpen(false)} className="text-gray-600 hover:text-gray-400 text-xs">✕</button>
-          </div>
-          <p className="text-[10px] text-gray-700">
-            ⚠️ L'URL doit être accessible depuis Internet (Nabu Casa, tunnel Cloudflare, ou IP publique). Les IP locales (192.168.x.x) ne sont pas joignables depuis Replit.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1 block">URL publique HA</label>
-              <input type="text" value={urlInput} onChange={e => setUrlInput(e.target.value)}
-                placeholder="https://monha.duckdns.org:8123"
-                className="w-full rounded-xl py-2.5 px-3 text-xs text-white placeholder:text-gray-700 focus:outline-none"
-                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }} />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+          onClick={e => { if (e.target === e.currentTarget) setConfigOpen(false); }}>
+          <div className="w-full max-w-lg rounded-2xl shadow-[0_32px_64px_rgba(0,0,0,0.8)]"
+            style={{ background: "rgba(8,8,18,0.98)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-6 pt-5 pb-4"
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl" style={{ background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.2)" }}>
+                  <Wifi className="h-4 w-4 text-indigo-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Connexion Home Assistant</h3>
+                  <p className="text-[10px] text-gray-600 mt-0.5">Saisissez vos identifiants HA</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setConfigOpen(false)}
+                className="p-1.5 rounded-lg text-gray-600 hover:text-gray-400 hover:bg-white/5 transition-all">
+                ✕
+              </button>
             </div>
-            <div>
-              <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1 block">Token Long-Lived</label>
-              <input type="password" value={tokenInput} onChange={e => setTokenInput(e.target.value)}
-                placeholder="eyJhbGci..."
-                className="w-full rounded-xl py-2.5 px-3 text-xs text-white placeholder:text-gray-700 focus:outline-none"
-                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }} />
-            </div>
+
+            <form onSubmit={connectHA} className="px-6 py-5 space-y-4">
+              {/* Info notice */}
+              <div className="flex gap-2.5 px-3.5 py-3 rounded-xl text-[10px] leading-relaxed"
+                style={{ background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.12)" }}>
+                <AlertTriangle className="h-3.5 w-3.5 text-indigo-400 shrink-0 mt-0.5" />
+                <span className="text-indigo-300/70">
+                  L'URL doit être <strong className="text-indigo-300">accessible depuis Internet</strong> — Nabu Casa, DuckDNS, tunnel Cloudflare…
+                  Les adresses locales <code className="font-mono text-[9px] bg-indigo-500/10 px-1 py-0.5 rounded">192.168.x.x</code> ne fonctionnent pas ici.
+                </span>
+              </div>
+
+              {/* Fields */}
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                    URL publique Home Assistant
+                  </label>
+                  <input type="text" value={urlInput} onChange={e => setUrlInput(e.target.value)}
+                    placeholder="https://monha.duckdns.org:8123"
+                    className="w-full rounded-xl py-2.5 px-3.5 text-sm text-white placeholder:text-gray-700 focus:outline-none transition-all"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: connError ? "1px solid rgba(239,68,68,0.3)" : "1px solid rgba(255,255,255,0.07)",
+                    }} />
+                  <p className="text-[9px] text-gray-700 mt-1 ml-1">Format : https://… (avec https, sans slash final)</p>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                    Token Long-Lived Access
+                  </label>
+                  <input type="password" value={tokenInput} onChange={e => setTokenInput(e.target.value)}
+                    placeholder="eyJhbGciOiJIUzI1NiI…"
+                    className="w-full rounded-xl py-2.5 px-3.5 text-sm text-white placeholder:text-gray-700 focus:outline-none transition-all"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: connError ? "1px solid rgba(239,68,68,0.3)" : "1px solid rgba(255,255,255,0.07)",
+                    }} />
+                  <p className="text-[9px] text-gray-700 mt-1 ml-1">
+                    Profil HA → Sécurité → Jetons d'accès longue durée
+                  </p>
+                </div>
+              </div>
+
+              {/* Error message */}
+              {connError && (
+                <div className="flex gap-2.5 px-3.5 py-3 rounded-xl"
+                  style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.18)" }}>
+                  <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                  <p className="text-xs text-red-400 leading-relaxed">{connError}</p>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-2 pt-1">
+                <button type="submit" disabled={connecting || !urlInput || !tokenInput}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white transition-all disabled:opacity-40 relative"
+                  style={{ background: "rgba(99,102,241,0.25)", border: "1px solid rgba(99,102,241,0.35)" }}>
+                  {connecting ? (
+                    <span className="flex items-center justify-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-indigo-300 animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <span className="h-1.5 w-1.5 rounded-full bg-indigo-300 animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <span className="h-1.5 w-1.5 rounded-full bg-indigo-300 animate-bounce" style={{ animationDelay: "300ms" }} />
+                    </span>
+                  ) : "Se connecter"}
+                </button>
+                <button type="button" onClick={() => { setConfigOpen(false); setConnError(""); }}
+                  className="px-5 py-2.5 rounded-xl text-xs font-semibold text-gray-500 hover:text-gray-300 hover:bg-white/5 transition-all">
+                  Annuler
+                </button>
+              </div>
+            </form>
           </div>
-          {connError && <p className="text-red-400 text-xs flex items-center gap-1.5"><AlertTriangle className="h-3 w-3" />{connError}</p>}
-          <div className="flex gap-2">
-            <button type="submit" disabled={connecting || !urlInput || !tokenInput}
-              className="px-4 py-2 rounded-xl text-xs font-bold text-white transition-all disabled:opacity-40"
-              style={{ background: "rgba(99,102,241,0.2)", border: "1px solid rgba(99,102,241,0.3)" }}>
-              {connecting ? "Connexion..." : "Se connecter"}
-            </button>
-            <button type="button" onClick={() => setConfigOpen(false)}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-500 hover:text-gray-300 transition-colors">
-              Annuler
-            </button>
-          </div>
-        </form>
+        </div>
       )}
 
       {/* Tabs */}

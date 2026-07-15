@@ -49,94 +49,159 @@ function LoginScreen({ username, password, onLogin }: {
   const [showPwd,   setShowPwd]   = useState(false);
   const [showUser,  setShowUser]  = useState(false);
   const [error,     setError]     = useState("");
+  const [loading,   setLoading]   = useState(false);
+  const [focusField, setFocusField] = useState<"user" | "pwd" | null>(null);
   const { color, style } = useTheme();
 
   const shapeClass = getContainerShape(style);
   const fontClass  = getFontClass(style);
   const letterCSS  = getLetterStyle(color, style);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputUser === username && inputPwd === password) { onLogin(); }
-    else { setError("Identifiants incorrects"); setInputPwd(""); }
+    setLoading(true);
+    // Small delay for UX feel
+    await new Promise(r => setTimeout(r, 350));
+    if (inputUser === username && inputPwd === password) {
+      onLogin();
+    } else {
+      setError("Identifiants incorrects");
+      setInputPwd("");
+      setLoading(false);
+    }
   };
 
+  const inputStyle = (focused: boolean, hasError: boolean) => ({
+    background: focused ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.03)",
+    border: hasError
+      ? "1px solid rgba(239,68,68,0.4)"
+      : focused
+      ? `1px solid ${color.border}`
+      : "1px solid rgba(255,255,255,0.07)",
+    transition: "background 0.2s, border 0.2s",
+    boxShadow: focused && !hasError ? `0 0 0 3px ${color.bg}18` : "none",
+  });
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 font-sans"
-      style={{ background: "#02020a", backgroundImage: `radial-gradient(ellipse 80% 60% at 50% -10%, ${color.bg}, transparent)` }}>
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 font-sans relative overflow-hidden"
+      style={{ background: "#02020a" }}>
+
+      {/* Background glow */}
+      <div className="absolute inset-0 pointer-events-none"
+        style={{ background: `radial-gradient(ellipse 70% 50% at 50% -5%, ${color.bg}22, transparent 70%)` }} />
+      {/* Grid lines */}
+      <div className="absolute inset-0 pointer-events-none opacity-[0.025]"
+        style={{
+          backgroundImage: `linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)`,
+          backgroundSize: "60px 60px"
+        }} />
 
       {/* Logo block */}
-      <div className="flex flex-col items-center mb-8">
-        <div className={`w-16 h-16 ${shapeClass} flex items-center justify-center font-bold text-2xl shadow-lg mb-4`} style={letterCSS}>
-          <span className={fontClass}>N</span>
+      <div className="flex flex-col items-center mb-8 relative z-10">
+        <div className="relative mb-5">
+          {/* Outer glow ring */}
+          <div className="absolute inset-0 rounded-2xl blur-xl opacity-40" style={{ background: color.bg, transform: "scale(1.4)" }} />
+          <div className={`relative w-16 h-16 ${shapeClass} flex items-center justify-center font-bold text-2xl`} style={letterCSS}>
+            <span className={fontClass}>N</span>
+          </div>
         </div>
-        <h1 className="text-2xl font-black tracking-[0.3em] text-white uppercase">NEXUS</h1>
-        <p className="text-[10px] text-gray-600 font-semibold tracking-widest uppercase mt-1">PANEL V2.0</p>
+        <h1 className="text-2xl font-black tracking-[0.35em] text-white uppercase">NEXUS</h1>
+        <div className="flex items-center gap-2 mt-1.5">
+          <div className="h-px w-8" style={{ background: `${color.border}60` }} />
+          <p className="text-[9px] text-gray-600 font-semibold tracking-[0.25em] uppercase">PANEL V2.0</p>
+          <div className="h-px w-8" style={{ background: `${color.border}60` }} />
+        </div>
       </div>
 
       {/* Card */}
-      <div className="w-full max-w-md rounded-2xl p-8 shadow-[0_20px_50px_rgba(0,0,0,0.6)]"
-        style={{ background: "rgba(7,7,15,0.9)", border: "1px solid rgba(255,255,255,0.07)" }}>
-        <h2 className="text-lg font-bold text-white mb-1">Connexion</h2>
-        <p className="text-xs text-gray-600 mb-6">Entrez vos identifiants pour accéder au panel.</p>
+      <div className="w-full max-w-sm relative z-10 rounded-2xl shadow-[0_32px_64px_rgba(0,0,0,0.7)]"
+        style={{ background: "rgba(6,6,14,0.95)", border: "1px solid rgba(255,255,255,0.07)" }}>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Username */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-gray-500">Identifiant</label>
-            <div className="relative">
-              <User className="absolute left-3.5 top-3.5 h-4 w-4 text-gray-700" />
-              <input
-                type={showUser ? "text" : "password"}
-                autoComplete="off"
-                value={inputUser}
-                onChange={(e) => { setInputUser(e.target.value); setError(""); }}
-                placeholder="Identifiant"
-                className="w-full rounded-xl py-3 pl-11 pr-11 text-sm text-white placeholder:text-gray-700 focus:outline-none transition-colors"
-                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
-              />
-              <button type="button" onClick={() => setShowUser(!showUser)}
-                className="absolute right-3.5 top-3.5 text-gray-700 hover:text-gray-400 transition-colors">
-                {showUser ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
+        {/* Card top accent */}
+        <div className="h-px w-full rounded-t-2xl" style={{ background: `linear-gradient(to right, transparent, ${color.border}60, transparent)` }} />
+
+        <div className="p-7">
+          <div className="mb-6">
+            <h2 className="text-base font-bold text-white">Connexion</h2>
+            <p className="text-[11px] text-gray-600 mt-0.5">Panel d'accès sécurisé</p>
           </div>
 
-          {/* Password */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-gray-500">Mot de passe</label>
-            <div className="relative">
-              <Lock className="absolute left-3.5 top-3.5 h-4 w-4 text-gray-700" />
-              <input
-                type={showPwd ? "text" : "password"}
-                value={inputPwd}
-                onChange={(e) => { setInputPwd(e.target.value); setError(""); }}
-                placeholder="••••••••"
-                className="w-full rounded-xl py-3 pl-11 pr-11 text-sm text-white placeholder:text-gray-700 focus:outline-none transition-colors"
-                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
-              />
-              <button type="button" onClick={() => setShowPwd(!showPwd)}
-                className="absolute right-3.5 top-3.5 text-gray-700 hover:text-gray-400 transition-colors">
-                {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
+          <form onSubmit={handleSubmit} className="space-y-3">
+            {/* Username */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Identifiant</label>
+              <div className="relative">
+                <User className="absolute left-3.5 top-3.5 h-4 w-4 transition-colors"
+                  style={{ color: focusField === "user" ? color.border : "#374151" }} />
+                <input
+                  type={showUser ? "text" : "password"}
+                  autoComplete="off"
+                  value={inputUser}
+                  onChange={(e) => { setInputUser(e.target.value); setError(""); }}
+                  onFocus={() => setFocusField("user")}
+                  onBlur={() => setFocusField(null)}
+                  placeholder="Identifiant"
+                  className="w-full rounded-xl py-3 pl-11 pr-11 text-sm text-white placeholder:text-gray-700 focus:outline-none"
+                  style={inputStyle(focusField === "user", !!error)}
+                />
+                <button type="button" onClick={() => setShowUser(!showUser)}
+                  className="absolute right-3.5 top-3.5 transition-colors hover:text-gray-400"
+                  style={{ color: "#374151" }}>
+                  {showUser ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
-          </div>
 
-          {error && (
-            <div className="flex items-center gap-2 text-red-400 text-xs">
-              <AlertTriangle className="h-3.5 w-3.5" /> {error}
+            {/* Password */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Mot de passe</label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-3.5 h-4 w-4 transition-colors"
+                  style={{ color: focusField === "pwd" ? color.border : "#374151" }} />
+                <input
+                  type={showPwd ? "text" : "password"}
+                  value={inputPwd}
+                  onChange={(e) => { setInputPwd(e.target.value); setError(""); }}
+                  onFocus={() => setFocusField("pwd")}
+                  onBlur={() => setFocusField(null)}
+                  placeholder="••••••••"
+                  className="w-full rounded-xl py-3 pl-11 pr-11 text-sm text-white placeholder:text-gray-700 focus:outline-none"
+                  style={inputStyle(focusField === "pwd", !!error)}
+                />
+                <button type="button" onClick={() => setShowPwd(!showPwd)}
+                  className="absolute right-3.5 top-3.5 transition-colors hover:text-gray-400"
+                  style={{ color: "#374151" }}>
+                  {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
-          )}
 
-          <button type="submit"
-            className="w-full py-3 rounded-xl text-sm font-bold text-white mt-2 transition-all hover:opacity-90"
-            style={{ background: color.bg, border: `1px solid ${color.border}` }}>
-            Se connecter
-          </button>
-        </form>
+            {/* Error */}
+            {error && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-red-400"
+                style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.2)" }}>
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                {error}
+              </div>
+            )}
+
+            <button type="submit" disabled={loading || !inputUser || !inputPwd}
+              className="w-full py-3 rounded-xl text-sm font-bold text-white mt-1 transition-all disabled:opacity-50 relative overflow-hidden"
+              style={{ background: `linear-gradient(135deg, ${color.bg}, ${color.bg}cc)`, border: `1px solid ${color.border}50` }}>
+              <span className={loading ? "opacity-0" : "opacity-100"}>Se connecter</span>
+              {loading && (
+                <span className="absolute inset-0 flex items-center justify-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce" style={{ animationDelay: "300ms" }} />
+                </span>
+              )}
+            </button>
+          </form>
+        </div>
       </div>
 
-      <p className="text-[10px] text-gray-700 mt-6 tracking-wide">Accès restreint — panel personnel</p>
+      <p className="text-[9px] text-gray-800 mt-5 tracking-[0.2em] uppercase relative z-10">Accès restreint — panel personnel</p>
     </div>
   );
 }

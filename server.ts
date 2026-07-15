@@ -219,12 +219,26 @@ app.post("/api/home-assistant/config", async (req, res) => {
       res.json({ success: true, message: "Connecté avec succès à Home Assistant !", config: haConfig });
     } else {
       haConfig = store.setHaConfig({ isConnected: false });
-      res.status(400).json({ success: false, message: `Home Assistant a renvoyé une erreur (Code: ${response.status})` });
+      let errMsg = `Home Assistant a renvoyé une erreur (Code HTTP ${response.status})`;
+      if (response.status === 401) errMsg = "Token invalide ou expiré — vérifiez votre Long-Lived Access Token dans HA.";
+      else if (response.status === 403) errMsg = "Accès refusé — le token ne dispose pas des permissions nécessaires.";
+      else if (response.status === 404) errMsg = "URL incorrecte — aucune API Home Assistant trouvée à cette adresse.";
+      res.status(400).json({ success: false, message: errMsg });
     }
   } catch (err: any) {
     clearTimeout(timeoutId);
     store.setHaConfig({ isConnected: false });
-    res.status(500).json({ success: false, message: `Impossible de joindre le serveur Home Assistant : ${err.message}` });
+    let errMsg = `Impossible de joindre le serveur : ${err.message}`;
+    if (err.name === "AbortError") {
+      errMsg = "Délai dépassé (8s) — l'URL est-elle bien accessible depuis Internet ? Les IP locales (192.168.x.x) ne fonctionnent pas sur Replit.";
+    } else if (err.code === "ENOTFOUND" || err.code === "EAI_AGAIN") {
+      errMsg = "Nom de domaine introuvable — vérifiez l'URL (ex. DuckDNS, Nabu Casa).";
+    } else if (err.code === "ECONNREFUSED") {
+      errMsg = "Connexion refusée — le port est-il ouvert et HA est-il démarré ?";
+    } else if (err.code === "ECONNRESET" || err.message?.includes("network")) {
+      errMsg = "Connexion interrompue — utilisez une URL publique, pas une IP locale.";
+    }
+    res.status(500).json({ success: false, message: errMsg });
   }
 });
 
