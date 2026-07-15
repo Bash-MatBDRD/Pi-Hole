@@ -56,7 +56,7 @@ function useTheme() {
 
 export default function Sidebar({ onLock, onLogout, spotifyTrack }: Props) {
   const [hovered, setHovered]   = useState(false);
-  const [pinned, setPinned]     = useState(() => localStorage.getItem("nexus-sidebar-pinned") === "true");
+  const [pinned, setPinned]     = useState(() => localStorage.getItem("nexus-sidebar-pinned") !== "false");
   const location = useLocation();
   const { color, style } = useTheme();
   const ref = useRef<HTMLDivElement>(null);
