@@ -1,10 +1,10 @@
 // ──────────────────────────────────────────────────────────────────────────────
-// File browsing / download / upload / share-link for both ZimaOS boxes.
+// File browsing / download / upload / share-link for every monitored host.
 //
-// "local"  -> plain Node `fs` calls (this process's own filesystem).
-// "remote" -> SFTP over the same SSH credentials used for system stats.
+// Local host -> plain Node `fs` calls (this process's own filesystem).
+// Remote hosts -> SFTP over the same SSH credentials used for system stats.
 //
-// All paths are resolved against a configurable per-host root and validated
+// All paths are resolved against the host's configurable root and validated
 // to stay inside it (no `..` escape), since this exposes real files on real
 // machines.
 // ──────────────────────────────────────────────────────────────────────────────
@@ -14,12 +14,7 @@ import path from "path";
 import crypto from "crypto";
 import type { Response } from "express";
 import SftpClient from "ssh2-sftp-client";
-import { HOSTS, isRemoteConfigured, remoteConnectConfig, type HostKey } from "./hosts";
-
-export const filesConfig: Record<HostKey, { root: string }> = {
-  local: { root: process.env.LOCAL_FILES_ROOT || "/DATA" },
-  remote: { root: process.env.REMOTE_FILES_ROOT || "/DATA" },
-};
+import { isHostConfigured, hostConnectConfig, requireHost, type HostRecord } from "./hosts";
 
 export interface FileEntry {
   name: string;
@@ -29,34 +24,36 @@ export interface FileEntry {
   modifiedAt: string | null;
 }
 
-function resolveLocalPath(relPath: string): string {
-  const root = path.resolve(filesConfig.local.root);
-  const resolved = path.resolve(root, "." + path.sep + relPath.replace(/^\/+/, ""));
-  if (!resolved.startsWith(root)) throw new Error("Chemin invalide");
+function resolveLocalPath(root: string, relPath: string): string {
+  const rootAbs = path.resolve(root);
+  const resolved = path.resolve(rootAbs, "." + path.sep + relPath.replace(/^\/+/, ""));
+  if (!resolved.startsWith(rootAbs)) throw new Error("Chemin invalide");
   return resolved;
 }
 
-function resolveRemotePath(relPath: string): string {
-  const root = path.posix.resolve(filesConfig.remote.root);
-  const resolved = path.posix.resolve(root, "./" + relPath.replace(/^\/+/, ""));
-  if (!resolved.startsWith(root)) throw new Error("Chemin invalide");
+function resolveRemotePath(root: string, relPath: string): string {
+  const rootAbs = path.posix.resolve(root);
+  const resolved = path.posix.resolve(rootAbs, "./" + relPath.replace(/^\/+/, ""));
+  if (!resolved.startsWith(rootAbs)) throw new Error("Chemin invalide");
   return resolved;
 }
 
-async function withSftp<T>(fn: (sftp: SftpClient) => Promise<T>): Promise<T> {
-  if (!isRemoteConfigured()) throw new Error("SSH non configuré pour le ZimaOS Principal");
+async function withSftp<T>(host: HostRecord, fn: (sftp: SftpClient) => Promise<T>): Promise<T> {
+  if (!isHostConfigured(host)) throw new Error(`SSH non configuré pour ${host.name}`);
   const sftp = new SftpClient();
   try {
-    await sftp.connect(remoteConnectConfig());
+    await sftp.connect(hostConnectConfig(host));
     return await fn(sftp);
   } finally {
     await sftp.end().catch(() => {});
   }
 }
 
-export async function listDir(hostKey: HostKey, relPath: string): Promise<FileEntry[]> {
-  if (hostKey === "local") {
-    const abs = resolveLocalPath(relPath);
+export async function listDir(hostId: string, relPath: string): Promise<{ entries: FileEntry[]; root: string }> {
+  const host = requireHost(hostId);
+  const root = host.filesRoot || "/DATA";
+  if (host.isLocal) {
+    const abs = resolveLocalPath(root, relPath);
     const entries = await fsp.readdir(abs, { withFileTypes: true });
     const results: FileEntry[] = [];
     for (const entry of entries) {
@@ -70,11 +67,11 @@ export async function listDir(hostKey: HostKey, relPath: string): Promise<FileEn
         modifiedAt: stat?.mtime?.toISOString() ?? null,
       });
     }
-    return results;
+    return { entries: results, root };
   }
 
-  return withSftp(async (sftp) => {
-    const abs = resolveRemotePath(relPath);
+  const entries = await withSftp(host, async (sftp) => {
+    const abs = resolveRemotePath(root, relPath);
     const list = await sftp.list(abs);
     return list.map((item) => ({
       name: item.name,
@@ -84,48 +81,55 @@ export async function listDir(hostKey: HostKey, relPath: string): Promise<FileEn
       modifiedAt: item.modifyTime ? new Date(item.modifyTime).toISOString() : null,
     }));
   });
+  return { entries, root };
 }
 
-export async function streamDownload(hostKey: HostKey, relPath: string, res: Response, filename: string) {
+export async function streamDownload(hostId: string, relPath: string, res: Response, filename: string) {
+  const host = requireHost(hostId);
+  const root = host.filesRoot || "/DATA";
   res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
   res.setHeader("Content-Type", "application/octet-stream");
-  if (hostKey === "local") {
-    const abs = resolveLocalPath(relPath);
+  if (host.isLocal) {
+    const abs = resolveLocalPath(root, relPath);
     await fsp.access(abs, fs.constants.R_OK);
     fs.createReadStream(abs).pipe(res);
     return;
   }
-  return withSftp(async (sftp) => {
-    const abs = resolveRemotePath(relPath);
+  return withSftp(host, async (sftp) => {
+    const abs = resolveRemotePath(root, relPath);
     await sftp.get(abs, res as any);
   });
 }
 
-export async function uploadFile(hostKey: HostKey, relDirPath: string, filename: string, tmpFilePath: string) {
-  if (hostKey === "local") {
-    const abs = resolveLocalPath(path.posix.join(relDirPath.replace(/^\/+/, ""), filename));
+export async function uploadFile(hostId: string, relDirPath: string, filename: string, tmpFilePath: string) {
+  const host = requireHost(hostId);
+  const root = host.filesRoot || "/DATA";
+  if (host.isLocal) {
+    const abs = resolveLocalPath(root, path.posix.join(relDirPath.replace(/^\/+/, ""), filename));
     await fsp.mkdir(path.dirname(abs), { recursive: true });
     await fsp.copyFile(tmpFilePath, abs);
     await fsp.unlink(tmpFilePath).catch(() => {});
     return;
   }
-  return withSftp(async (sftp) => {
-    const abs = resolveRemotePath(path.posix.join(relDirPath.replace(/^\/+/, ""), filename));
+  return withSftp(host, async (sftp) => {
+    const abs = resolveRemotePath(root, path.posix.join(relDirPath.replace(/^\/+/, ""), filename));
     await sftp.mkdir(path.posix.dirname(abs), true).catch(() => {});
     await sftp.put(tmpFilePath, abs);
     await fsp.unlink(tmpFilePath).catch(() => {});
   });
 }
 
-export async function deleteEntry(hostKey: HostKey, relPath: string, isDirectory: boolean) {
-  if (hostKey === "local") {
-    const abs = resolveLocalPath(relPath);
+export async function deleteEntry(hostId: string, relPath: string, isDirectory: boolean) {
+  const host = requireHost(hostId);
+  const root = host.filesRoot || "/DATA";
+  if (host.isLocal) {
+    const abs = resolveLocalPath(root, relPath);
     if (isDirectory) await fsp.rm(abs, { recursive: true, force: true });
     else await fsp.unlink(abs);
     return;
   }
-  return withSftp(async (sftp) => {
-    const abs = resolveRemotePath(relPath);
+  return withSftp(host, async (sftp) => {
+    const abs = resolveRemotePath(root, relPath);
     if (isDirectory) await sftp.rmdir(abs, true);
     else await sftp.delete(abs);
   });
@@ -133,7 +137,7 @@ export async function deleteEntry(hostKey: HostKey, relPath: string, isDirectory
 
 // ── Share links (local-network "airdrop"-style temporary download URLs) ───────
 interface ShareEntry {
-  hostKey: HostKey;
+  hostId: string;
   relPath: string;
   filename: string;
   expiresAt: number;
@@ -141,10 +145,10 @@ interface ShareEntry {
 const shares = new Map<string, ShareEntry>();
 const SHARE_TTL_MS = 24 * 60 * 60 * 1000;
 
-export function createShareLink(hostKey: HostKey, relPath: string, filename: string): { token: string; expiresAt: number } {
+export function createShareLink(hostId: string, relPath: string, filename: string): { token: string; expiresAt: number } {
   const token = crypto.randomBytes(16).toString("hex");
   const expiresAt = Date.now() + SHARE_TTL_MS;
-  shares.set(token, { hostKey, relPath, filename, expiresAt });
+  shares.set(token, { hostId, relPath, filename, expiresAt });
   return { token, expiresAt };
 }
 
@@ -156,8 +160,4 @@ export function resolveShare(token: string): ShareEntry | null {
     return null;
   }
   return entry;
-}
-
-export function hostLabel(hostKey: HostKey) {
-  return HOSTS[hostKey].name;
 }

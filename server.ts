@@ -4,11 +4,13 @@ import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import multer from "multer";
 import { getZimaStats } from "./server/system";
-import { HostKey } from "./server/hosts";
+import { getHosts, requireHost, MAX_CUSTOM_HOSTS } from "./server/hosts";
 import {
   listDir, streamDownload, uploadFile, deleteEntry,
-  createShareLink, resolveShare, filesConfig,
+  createShareLink, resolveShare,
 } from "./server/files";
+import * as store from "./server/store";
+import { addHost, removeHost } from "./server/store";
 
 dotenv.config();
 
@@ -18,125 +20,26 @@ const upload = multer({ dest: "/tmp/nexus-uploads" });
 
 app.use(express.json());
 
-function parseHostKey(value: any): HostKey {
-  if (value === "local" || value === "remote") return value;
-  throw new Error("Hôte invalide (attendu: local | remote)");
+// Persistent storage: every action below reads/writes server/store.ts, which is
+// backed by a JSON file on disk (data/nexus-store.json) — settings, config and
+// device state survive restarts. Only the activity/Discord logs are treated as
+// a "cache" and pruned automatically once a week.
+store.startWeeklyCleanupScheduler();
+
+function safeHostPublic(h: ReturnType<typeof getHosts>[number]) {
+  // Never leak SSH credentials to the client — only whether they're set.
+  const { sshPassword, sshUser, ...pub } = h;
+  return { ...pub, sshConfigured: Boolean(h.sshUser && h.sshPassword) };
 }
 
-// In-Memory Configurations (Persisted during server runtime)
-let haConfig = {
-  url: "http://192.168.1.25:8123",
-  token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIzODQ5...",
-  isConnected: false,
-};
-
-let discordConfig = {
-  token: "",
-  botName: "Domobot",
-  prefix: "/",
-  status: "online",
-};
-
-// In-Memory State for Mock Home Assistant Devices
-let mockDevices = [
-  {
-    id: "light.salon_led",
-    name: "LED Salon",
-    type: "light",
-    state: "on",
-    room: "Salon",
-    attributes: { brightness: 75, color_temp: "warm", power_w: 12 }
-  },
-  {
-    id: "light.cuisine_principal",
-    name: "Cuisine Plafonnier",
-    type: "light",
-    state: "off",
-    room: "Cuisine",
-    attributes: { brightness: 0, color_temp: "daylight", power_w: 0 }
-  },
-  {
-    id: "cover.salon_volet",
-    name: "Volet Roulant Salon",
-    type: "cover",
-    state: "open",
-    room: "Salon",
-    attributes: { current_position: 100 }
-  },
-  {
-    id: "cover.chambre_store",
-    name: "Store Chambre",
-    type: "cover",
-    state: "closed",
-    room: "Chambre",
-    attributes: { current_position: 0 }
-  },
-  {
-    id: "climate.thermostat_salon",
-    name: "Thermostat Principal",
-    type: "climate",
-    state: "heat",
-    room: "Salon",
-    attributes: { current_temperature: 19.5, temperature: 21.0, hvac_mode: "heat" }
-  },
-  {
-    id: "switch.prise_tv",
-    name: "Prise TV & Consoles",
-    type: "switch",
-    state: "on",
-    room: "Salon",
-    attributes: { power_w: 125.4, today_energy_kwh: 1.2 }
-  },
-  {
-    id: "switch.machine_cafe",
-    name: "Cafetière",
-    type: "switch",
-    state: "off",
-    room: "Cuisine",
-    attributes: { power_w: 0, today_energy_kwh: 0.4 }
-  },
-  {
-    id: "media_player.spotify_salon",
-    name: "Enceinte Salon (Spotify)",
-    type: "media_player",
-    state: "playing",
-    room: "Salon",
-    attributes: { 
-      volume_level: 0.4, 
-      media_title: "Bohemian Rhapsody", 
-      media_artist: "Queen",
-      media_duration: 354,
-      media_position: 120
-    }
-  },
-  {
-    id: "camera.entree_secure",
-    name: "Caméra Allée & Entrée",
-    type: "camera",
-    state: "idle",
-    room: "Extérieur",
-    attributes: { motion_detected: false, fps: 15 }
-  }
-];
-
-// In-Memory logs of Bot actions
-let mockDiscordLogs = [
-  { timestamp: new Date(Date.now() - 3600000).toISOString(), user: "Mathieu", command: "/ha status", response: "✅ Home Assistant: Connecté | 9 appareils détectés." },
-  { timestamp: new Date(Date.now() - 1800000).toISOString(), user: "Système", command: "Event: Volet Roulant Salon", response: "Position modifiée à 100% (Ouvert)" },
-  { timestamp: new Date(Date.now() - 600000).toISOString(), user: "Mathieu", command: "/light salon_led on brightness=75", response: "💡 LED Salon allumé à 75%" },
-  { timestamp: new Date(Date.now() - 300000).toISOString(), user: "ZimaOS_Zera", command: "HDD Health Check", response: "Hard Drive Check: Perfect (41°C) - 0 bad sectors" }
-];
-
-// API - SYSTEM STATS (real readings from both ZimaOS boxes — see server/system.ts)
+// API - SYSTEM STATS (real readings from every monitored host — see server/system.ts)
 app.get("/api/system/stats", async (req, res) => {
   try {
-    const [local, remote] = await Promise.all([
-      getZimaStats("local", filesConfig.local.root),
-      getZimaStats("remote", filesConfig.remote.root),
-    ]);
+    const hosts = getHosts();
+    const stats = await Promise.all(hosts.map((h) => getZimaStats(h)));
+    const discordConfig = store.getDiscordConfig();
     res.json({
-      zima1: local,
-      zima2: remote,
+      hosts: stats,
       discordBot: {
         name: discordConfig.botName,
         status: discordConfig.status,
@@ -152,14 +55,53 @@ app.get("/api/system/stats", async (req, res) => {
   }
 });
 
+// API - HOSTS (monitored ZimaOS/servers) — add up to MAX_CUSTOM_HOSTS extra systems
+app.get("/api/hosts", (req, res) => {
+  res.json({ hosts: getHosts().map(safeHostPublic), maxCustomHosts: MAX_CUSTOM_HOSTS });
+});
+
+app.post("/api/hosts", (req, res) => {
+  try {
+    const { name, ip, sshUser, sshPassword, filesRoot } = req.body;
+    const host = addHost({ name, ip, sshUser, sshPassword, filesRoot });
+    store.logActivity("zimaos", `Système ajouté : ${host.name}`, host.ip);
+    res.json({ success: true, host: safeHostPublic(host) });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/hosts/:id", (req, res) => {
+  try {
+    const host = requireHost(req.params.id);
+    removeHost(req.params.id);
+    store.logActivity("zimaos", `Système supprimé : ${host.name}`, host.ip);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// API - ACTIVITY LOG (persistent journal of actions taken on the panel)
+app.get("/api/activity", (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 100, 2000);
+  res.json({ entries: store.getRecentActivity(limit) });
+});
+
+app.post("/api/activity", (req, res) => {
+  const { category, action, details } = req.body;
+  if (!category || !action) return res.status(400).json({ error: "category et action requis" });
+  store.logActivity(String(category), String(action), details ? String(details) : undefined);
+  res.json({ success: true });
+});
+
 // API - FILES: browse, download, upload, delete, share (see server/files.ts)
 app.get("/api/files/:host", async (req, res) => {
   try {
-    const hostKey = parseHostKey(req.params.host);
     const dirPath = typeof req.query.path === "string" ? req.query.path : "";
-    const entries = await listDir(hostKey, dirPath);
+    const { entries, root } = await listDir(req.params.host, dirPath);
     entries.sort((a, b) => (a.isDirectory === b.isDirectory ? a.name.localeCompare(b.name) : a.isDirectory ? -1 : 1));
-    res.json({ path: dirPath, root: filesConfig[hostKey].root, entries });
+    res.json({ path: dirPath, root, entries });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -167,10 +109,10 @@ app.get("/api/files/:host", async (req, res) => {
 
 app.get("/api/files/:host/download", async (req, res) => {
   try {
-    const hostKey = parseHostKey(req.params.host);
     const filePath = String(req.query.path || "");
     const filename = filePath.split("/").pop() || "fichier";
-    await streamDownload(hostKey, filePath, res, filename);
+    await streamDownload(req.params.host, filePath, res, filename);
+    store.logActivity("fichiers", `Téléchargement : ${filename}`, req.params.host);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -178,10 +120,10 @@ app.get("/api/files/:host/download", async (req, res) => {
 
 app.post("/api/files/:host/upload", upload.single("file"), async (req, res) => {
   try {
-    const hostKey = parseHostKey(req.params.host);
     const dirPath = String(req.body.path || "");
     if (!req.file) return res.status(400).json({ error: "Aucun fichier reçu" });
-    await uploadFile(hostKey, dirPath, req.file.originalname, req.file.path);
+    await uploadFile(req.params.host, dirPath, req.file.originalname, req.file.path);
+    store.logActivity("fichiers", `Fichier envoyé : ${req.file.originalname}`, req.params.host);
     res.json({ success: true, filename: req.file.originalname });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -190,10 +132,10 @@ app.post("/api/files/:host/upload", upload.single("file"), async (req, res) => {
 
 app.delete("/api/files/:host", async (req, res) => {
   try {
-    const hostKey = parseHostKey(req.params.host);
     const filePath = String(req.query.path || "");
     const isDirectory = req.query.isDirectory === "true";
-    await deleteEntry(hostKey, filePath, isDirectory);
+    await deleteEntry(req.params.host, filePath, isDirectory);
+    store.logActivity("fichiers", `Suppression : ${filePath}`, req.params.host);
     res.json({ success: true });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -202,10 +144,10 @@ app.delete("/api/files/:host", async (req, res) => {
 
 app.post("/api/files/:host/share", async (req, res) => {
   try {
-    const hostKey = parseHostKey(req.params.host);
     const { path: filePath, filename } = req.body;
     if (!filePath || !filename) return res.status(400).json({ error: "path et filename requis" });
-    const { token, expiresAt } = createShareLink(hostKey, filePath, filename);
+    const { token, expiresAt } = createShareLink(req.params.host, filePath, filename);
+    store.logActivity("fichiers", `Lien de partage créé : ${filename}`, req.params.host);
     res.json({ success: true, token, expiresAt, url: `/api/share/${token}` });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -217,7 +159,7 @@ app.get("/api/share/:token", async (req, res) => {
   try {
     const entry = resolveShare(req.params.token);
     if (!entry) return res.status(404).json({ error: "Lien expiré ou invalide" });
-    await streamDownload(entry.hostKey, entry.relPath, res, entry.filename);
+    await streamDownload(entry.hostId, entry.relPath, res, entry.filename);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -225,7 +167,7 @@ app.get("/api/share/:token", async (req, res) => {
 
 // API - DISCORD LOGS
 app.get("/api/discord/logs", (req, res) => {
-  res.json(mockDiscordLogs);
+  res.json(store.getDiscordLogs());
 });
 
 // API - ADD DISCORD COMMAND/LOG
@@ -237,25 +179,22 @@ app.post("/api/discord/logs", (req, res) => {
     command: command || "",
     response: response || ""
   };
-  mockDiscordLogs.unshift(newLog);
-  if (mockDiscordLogs.length > 50) {
-    mockDiscordLogs.pop();
-  }
+  store.addDiscordLog(newLog);
   res.json(newLog);
 });
 
 // API - HOME ASSISTANT CONFIG
 app.get("/api/home-assistant/config", (req, res) => {
-  res.json(haConfig);
+  res.json(store.getHaConfig());
 });
 
 app.post("/api/home-assistant/config", async (req, res) => {
   const { url, token } = req.body;
-  haConfig.url = url || "";
-  haConfig.token = token || "";
-  
+  let haConfig = store.setHaConfig({ url: url || "", token: token || "" });
+
   if (!haConfig.url || !haConfig.token) {
-    haConfig.isConnected = false;
+    haConfig = store.setHaConfig({ isConnected: false });
+    store.logActivity("settings", "Configuration Home Assistant réinitialisée");
     return res.json({ success: true, message: "Configuration réinitialisée.", config: haConfig });
   }
 
@@ -275,23 +214,25 @@ app.post("/api/home-assistant/config", async (req, res) => {
     clearTimeout(timeoutId);
 
     if (response.ok) {
-      haConfig.isConnected = true;
+      haConfig = store.setHaConfig({ isConnected: true });
+      store.logActivity("settings", "Connexion Home Assistant établie", haConfig.url);
       res.json({ success: true, message: "Connecté avec succès à Home Assistant !", config: haConfig });
     } else {
-      haConfig.isConnected = false;
+      haConfig = store.setHaConfig({ isConnected: false });
       res.status(400).json({ success: false, message: `Home Assistant a renvoyé une erreur (Code: ${response.status})` });
     }
   } catch (err: any) {
     clearTimeout(timeoutId);
-    haConfig.isConnected = false;
+    store.setHaConfig({ isConnected: false });
     res.status(500).json({ success: false, message: `Impossible de joindre le serveur Home Assistant : ${err.message}` });
   }
 });
 
 // Helper: Sync with real Home Assistant or return fallback
 async function fetchRealHADevices() {
+  const haConfig = store.getHaConfig();
   if (!haConfig.isConnected || !haConfig.url) return null;
-  
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
 
@@ -330,12 +271,12 @@ async function fetchRealHADevices() {
         }
       }));
     } else {
-      haConfig.isConnected = false;
+      store.setHaConfig({ isConnected: false });
     }
   } catch (err) {
     clearTimeout(timeoutId);
     console.error("Failed to fetch real HA devices (auto-disabling live sync):", err);
-    haConfig.isConnected = false;
+    store.setHaConfig({ isConnected: false });
   }
   return null;
 }
@@ -344,31 +285,32 @@ async function fetchRealHADevices() {
 app.get("/api/home-assistant/devices", async (req, res) => {
   const realDevices = await fetchRealHADevices();
   if (realDevices) {
-    // Merge real devices into mock list or return real
     res.json(realDevices);
-  } else {
-    // Simulate minor progress in media player if playing
-    const media = mockDevices.find(d => d.id === "media_player.spotify_salon");
-    if (media && media.state === "playing" && media.attributes.media_position !== undefined) {
-      media.attributes.media_position += 2;
-      if (media.attributes.media_position >= (media.attributes.media_duration || 300)) {
-        media.attributes.media_position = 0;
-      }
-    }
-    // Return mock
-    res.json(mockDevices);
+    return;
   }
+  // Simulate minor progress in media player if playing (persisted device state)
+  const devices = store.getDevices();
+  const media = devices.find((d: any) => d.id === "media_player.spotify_salon");
+  if (media && media.state === "playing" && media.attributes.media_position !== undefined) {
+    media.attributes.media_position += 2;
+    if (media.attributes.media_position >= (media.attributes.media_duration || 300)) {
+      media.attributes.media_position = 0;
+    }
+    store.saveDevices(devices);
+  }
+  res.json(devices);
 });
 
 // API - CONTROL DEVICE
 app.post("/api/home-assistant/command", async (req, res) => {
   const { entity_id, service, data } = req.body;
-  
+
   if (!entity_id) {
     return res.status(400).json({ error: "entity_id est requis" });
   }
 
   const domain = entity_id.split(".")[0];
+  const haConfig = store.getHaConfig();
 
   // Try real Home Assistant command
   if (haConfig.isConnected && haConfig.url) {
@@ -384,14 +326,13 @@ app.post("/api/home-assistant/command", async (req, res) => {
         body: JSON.stringify(payload)
       });
       if (response.ok) {
-        // Log action
-        const actionText = `Command ${domain}.${service} sent to real HA for ${entity_id}`;
-        mockDiscordLogs.unshift({
+        store.addDiscordLog({
           timestamp: new Date().toISOString(),
           user: "Dashboard Control",
           command: `/ha command ${domain}.${service} ${entity_id}`,
           response: `✅ Envoyé avec succès à Home Assistant : ${entity_id}`
         });
+        store.logActivity("domotique", `Commande ${domain}.${service}`, entity_id);
         return res.json({ success: true, isReal: true });
       }
     } catch (err: any) {
@@ -399,8 +340,9 @@ app.post("/api/home-assistant/command", async (req, res) => {
     }
   }
 
-  // Fallback / Mock mode control
-  const device = mockDevices.find(d => d.id === entity_id);
+  // Fallback / persisted mock mode control
+  const devices = store.getDevices();
+  const device = devices.find((d: any) => d.id === entity_id);
   if (!device) {
     return res.status(404).json({ error: "Appareil non trouvé" });
   }
@@ -456,23 +398,21 @@ app.post("/api/home-assistant/command", async (req, res) => {
     device.attributes.color_temp = data.color_temp;
   }
 
-  // Append command to logs
-  mockDiscordLogs.unshift({
+  store.saveDevices(devices);
+  store.addDiscordLog({
     timestamp: new Date().toISOString(),
     user: "Interface",
     command: `/ha command ${domain}.${service} ${entity_id}`,
     response: `💡 Statut de ${device.name} mis à jour : ${device.state}`
   });
-
-  if (mockDiscordLogs.length > 50) {
-    mockDiscordLogs.pop();
-  }
+  store.logActivity("domotique", `${device.name} → ${device.state}`, `${domain}.${service}`);
 
   res.json({ success: true, isReal: false, device });
 });
 
 // API - HOME ASSISTANT AREAS (resolves area_id → name via template API)
 app.get("/api/home-assistant/areas", async (req, res) => {
+  const haConfig = store.getHaConfig();
   if (!haConfig.isConnected || !haConfig.url) {
     return res.json({ Salon: "Salon", Cuisine: "Cuisine", Chambre: "Chambre", Extérieur: "Extérieur" });
   }
@@ -501,6 +441,7 @@ app.get("/api/home-assistant/areas", async (req, res) => {
 // API - CAMERA SNAPSHOT PROXY
 app.get("/api/home-assistant/camera-proxy/:entity_id", async (req, res) => {
   const { entity_id } = req.params;
+  const haConfig = store.getHaConfig();
   if (!haConfig.isConnected || !haConfig.url) {
     return res.status(503).json({ error: "HA non connecté" });
   }

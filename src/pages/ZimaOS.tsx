@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from "react";
 import {
   Server, Cpu, Database, HardDrive, Thermometer, RefreshCw,
-  Activity, Clock, MonitorSmartphone, AlertTriangle,
+  Activity, Clock, MonitorSmartphone, AlertTriangle, Plus, Trash2, X, Lock,
 } from "lucide-react";
 import axios from "axios";
 
 interface MetricResult<T> { available: boolean; reason?: string; data?: T; }
 
 interface ZimaStats {
-  name: string; ip: string; reachable: boolean; reason?: string; os: string;
+  id: string; name: string; ip: string; reachable: boolean; reason?: string; os: string;
   uptimeSeconds: number | null;
   cpu: { usage: number | null; temperature: number | null };
   ram: { usedGb: number | null; totalGb: number | null; usagePct: number | null };
@@ -19,9 +19,12 @@ interface ZimaStats {
   gpu: MetricResult<{ freqMhz: number; maxFreqMhz: number; usagePct: number }>;
 }
 interface SystemStats {
-  zima1: ZimaStats; zima2: ZimaStats;
+  hosts: ZimaStats[];
   discordBot: { name: string; status: string; ping: number; guilds: number; members: number; shards: number; commandsHandled: number; };
 }
+interface HostSummary { id: string; name: string; ip: string; isLocal: boolean; sshConfigured: boolean; }
+
+const ACCENTS = ["#6366f1", "#06b6d4", "#22c55e", "#f59e0b", "#e879f9"];
 
 function formatUptime(s: number | null) {
   if (s === null) return "—";
@@ -48,7 +51,7 @@ function Unavailable({ reason }: { reason?: string }) {
   );
 }
 
-function ServerCard({ server, accent }: { server: ZimaStats; accent: string }) {
+function ServerCard({ server, accent, isLocal, onDelete }: { server: ZimaStats; accent: string; isLocal: boolean; onDelete?: () => void }) {
   return (
     <div className="rounded-2xl p-5 space-y-4"
       style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
@@ -58,12 +61,19 @@ function ServerCard({ server, accent }: { server: ZimaStats; accent: string }) {
           <h2 className="text-sm font-black text-white">{server.name}</h2>
           <p className="text-[10px] text-gray-600 font-mono mt-0.5">{server.ip} · {server.os}</p>
         </div>
-        <div className="flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full"
-          style={server.reachable
-            ? { background: `${accent}15`, border: `1px solid ${accent}30`, color: accent }
-            : { background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171" }}>
-          <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: server.reachable ? accent : "#f87171" }} />
-          {server.reachable ? "En ligne" : "Inaccessible"}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full"
+            style={server.reachable
+              ? { background: `${accent}15`, border: `1px solid ${accent}30`, color: accent }
+              : { background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171" }}>
+            <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: server.reachable ? accent : "#f87171" }} />
+            {server.reachable ? "En ligne" : "Inaccessible"}
+          </div>
+          {!isLocal && onDelete && (
+            <button onClick={onDelete} title="Supprimer ce système" className="text-gray-700 hover:text-red-400 transition-colors p-1">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -176,28 +186,130 @@ function ServerCard({ server, accent }: { server: ZimaStats; accent: string }) {
   );
 }
 
+function AddHostModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+  const [name, setName] = useState("");
+  const [ip, setIp] = useState("");
+  const [sshUser, setSshUser] = useState("");
+  const [sshPassword, setSshPassword] = useState("");
+  const [filesRoot, setFilesRoot] = useState("/DATA");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true); setError("");
+    try {
+      await axios.post("/api/hosts", { name, ip, sshUser, sshPassword, filesRoot });
+      onAdded();
+      onClose();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || "Impossible d'ajouter ce système");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }}>
+      <div className="w-full max-w-md rounded-2xl p-5 space-y-4"
+        style={{ background: "#0a0a12", border: "1px solid rgba(255,255,255,0.1)" }}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-black text-white">Ajouter un système</h2>
+          <button onClick={onClose} className="text-gray-600 hover:text-gray-400"><X className="h-4 w-4" /></button>
+        </div>
+        <form onSubmit={submit} className="space-y-3">
+          {[
+            { label: "Nom", value: name, setter: setName, placeholder: "ZimaOS Bureau" },
+            { label: "Adresse IP", value: ip, setter: setIp, placeholder: "192.168.1.50" },
+            { label: "Utilisateur SSH", value: sshUser, setter: setSshUser, placeholder: "root" },
+          ].map(({ label, value, setter, placeholder }) => (
+            <div key={label}>
+              <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1 block">{label}</label>
+              <input value={value} onChange={(e) => setter(e.target.value)} placeholder={placeholder} required
+                className="w-full rounded-xl py-2.5 px-3 text-sm text-white focus:outline-none"
+                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }} />
+            </div>
+          ))}
+          <div>
+            <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1 block">Mot de passe SSH</label>
+            <input type="password" value={sshPassword} onChange={(e) => setSshPassword(e.target.value)} placeholder="••••••••" required
+              className="w-full rounded-xl py-2.5 px-3 text-sm text-white focus:outline-none"
+              style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }} />
+          </div>
+          <div>
+            <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1 block">Racine des fichiers</label>
+            <input value={filesRoot} onChange={(e) => setFilesRoot(e.target.value)} placeholder="/DATA"
+              className="w-full rounded-xl py-2.5 px-3 text-sm text-white focus:outline-none"
+              style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }} />
+          </div>
+          {error && <p className="text-[11px] text-red-400">{error}</p>}
+          <button type="submit" disabled={saving}
+            className="w-full py-2.5 rounded-xl text-xs font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
+            style={{ background: "rgba(99,102,241,0.9)" }}>
+            {saving ? "Ajout en cours…" : "Ajouter"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function ZimaOS() {
   const [stats,   setStats]   = useState<SystemStats | null>(null);
+  const [hosts,   setHosts]   = useState<HostSummary[]>([]);
+  const [maxCustom, setMaxCustom] = useState(3);
   const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
 
   const fetchStats = async () => {
     try { const r = await axios.get("/api/system/stats"); setStats(r.data); }
     catch {} finally { setLoading(false); }
   };
+  const fetchHosts = async () => {
+    try {
+      const r = await axios.get("/api/hosts");
+      setHosts(r.data.hosts); setMaxCustom(r.data.maxCustomHosts);
+    } catch {}
+  };
 
-  useEffect(() => { fetchStats(); const id = setInterval(fetchStats, 8000); return () => clearInterval(id); }, []);
+  useEffect(() => {
+    fetchStats(); fetchHosts();
+    const id = setInterval(fetchStats, 8000);
+    return () => clearInterval(id);
+  }, []);
+
+  const customCount = hosts.filter((h) => !h.isLocal && h.id !== "remote").length;
+  const canAddMore = customCount < maxCustom;
+
+  const deleteHost = async (id: string) => {
+    if (!confirm("Supprimer ce système du panel ?")) return;
+    try { await axios.delete(`/api/hosts/${id}`); fetchHosts(); fetchStats(); } catch {}
+  };
 
   return (
     <div className="p-5 space-y-5 max-w-6xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-black text-white tracking-wide">ZimaOS Diagnostic</h1>
-          <p className="text-xs text-gray-600 mt-0.5">Statistiques système en direct des 2 serveurs</p>
+          <p className="text-xs text-gray-600 mt-0.5">Statistiques système en direct — {hosts.length} système{hosts.length > 1 ? "s" : ""} surveillé{hosts.length > 1 ? "s" : ""}</p>
         </div>
-        <button onClick={fetchStats} className="text-gray-600 hover:text-gray-400 transition-colors p-2">
-          <RefreshCw className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          {canAddMore && (
+            <button onClick={() => setShowAdd(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white transition-all"
+              style={{ background: "rgba(99,102,241,0.9)" }}>
+              <Plus className="h-3.5 w-3.5" /> Ajouter un système
+            </button>
+          )}
+          <button onClick={() => { fetchStats(); fetchHosts(); }} className="text-gray-600 hover:text-gray-400 transition-colors p-2">
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        </div>
       </div>
+
+      {!canAddMore && (
+        <p className="text-[10px] text-gray-700 flex items-center gap-1.5">
+          <Lock className="h-3 w-3" /> Limite de {maxCustom} systèmes supplémentaires atteinte.
+        </p>
+      )}
 
       {loading ? (
         <div className="text-center py-20 text-gray-700">
@@ -207,8 +319,11 @@ export default function ZimaOS() {
       ) : stats ? (
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <ServerCard server={stats.zima1} accent="#6366f1" />
-            <ServerCard server={stats.zima2} accent="#06b6d4" />
+            {stats.hosts.map((server, i) => (
+              <ServerCard key={server.id} server={server} accent={ACCENTS[i % ACCENTS.length]}
+                isLocal={hosts.find((h) => h.id === server.id)?.isLocal ?? server.id === "local"}
+                onDelete={() => deleteHost(server.id)} />
+            ))}
           </div>
 
           {/* Discord bot card */}
@@ -243,6 +358,8 @@ export default function ZimaOS() {
           <p className="text-sm">Impossible de récupérer les statistiques</p>
         </div>
       )}
+
+      {showAdd && <AddHostModal onClose={() => setShowAdd(false)} onAdded={() => { fetchHosts(); fetchStats(); }} />}
     </div>
   );
 }

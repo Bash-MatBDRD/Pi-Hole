@@ -1,5 +1,6 @@
 // ──────────────────────────────────────────────────────────────────────────────
-// Real system metrics (CPU / RAM / disk / GPU / uptime) for both ZimaOS boxes.
+// Real system metrics (CPU / RAM / disk / GPU / uptime) for every monitored
+// ZimaOS/host.
 //
 // No fabricated numbers: every field is either a real reading or explicitly
 // marked unavailable (`available: false` + a short French reason) so the UI
@@ -7,7 +8,7 @@
 // ──────────────────────────────────────────────────────────────────────────────
 import { exec } from "child_process";
 import os from "os";
-import { execRemote, HOSTS, isRemoteConfigured, type HostKey } from "./hosts";
+import { execRemote, isHostConfigured, type HostRecord } from "./hosts";
 
 export interface MetricResult<T> {
   available: boolean;
@@ -16,6 +17,7 @@ export interface MetricResult<T> {
 }
 
 export interface ZimaStats {
+  id: string;
   name: string;
   ip: string;
   reachable: boolean;
@@ -35,8 +37,8 @@ export interface ZimaStats {
   gpu: MetricResult<{ freqMhz: number; maxFreqMhz: number; usagePct: number }>;
 }
 
-function run(hostKey: HostKey, command: string): Promise<string> {
-  if (hostKey === "local") {
+function run(host: HostRecord, command: string): Promise<string> {
+  if (host.isLocal) {
     return new Promise((resolve, reject) => {
       exec(command, { timeout: 6000 }, (err, stdout, stderr) => {
         if (err) return reject(err);
@@ -44,7 +46,7 @@ function run(hostKey: HostKey, command: string): Promise<string> {
       });
     });
   }
-  return execRemote(command);
+  return execRemote(host, command);
 }
 
 async function safe<T>(fn: () => Promise<T>): Promise<MetricResult<T>> {
@@ -56,10 +58,10 @@ async function safe<T>(fn: () => Promise<T>): Promise<MetricResult<T>> {
   }
 }
 
-async function getCpuUsage(hostKey: HostKey): Promise<number> {
+async function getCpuUsage(host: HostRecord): Promise<number> {
   // Two samples 500ms apart from /proc/stat give an accurate instantaneous usage
   // without depending on `top`'s exact output format across distros.
-  const read = () => run(hostKey, "cat /proc/stat | head -1");
+  const read = () => run(host, "cat /proc/stat | head -1");
   const parse = (line: string) => {
     const nums = line.trim().split(/\s+/).slice(1).map(Number);
     const idle = nums[3] + (nums[4] || 0);
@@ -75,15 +77,15 @@ async function getCpuUsage(hostKey: HostKey): Promise<number> {
   return Math.max(0, Math.min(100, (1 - idleDelta / totalDelta) * 100));
 }
 
-async function getCpuTemp(hostKey: HostKey): Promise<number> {
-  const out = await run(hostKey, "cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null");
+async function getCpuTemp(host: HostRecord): Promise<number> {
+  const out = await run(host, "cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null");
   const millideg = parseInt(out.trim(), 10);
   if (!Number.isFinite(millideg)) throw new Error("Capteur de température CPU introuvable");
   return millideg / 1000;
 }
 
-async function getRam(hostKey: HostKey): Promise<{ usedGb: number; totalGb: number; usagePct: number }> {
-  const out = await run(hostKey, "free -b | grep -i '^Mem:'");
+async function getRam(host: HostRecord): Promise<{ usedGb: number; totalGb: number; usagePct: number }> {
+  const out = await run(host, "free -b | grep -i '^Mem:'");
   const cols = out.trim().split(/\s+/).map(Number);
   // free -b Mem: total used free shared buff/cache available
   const totalB = cols[1];
@@ -97,15 +99,15 @@ async function getRam(hostKey: HostKey): Promise<{ usedGb: number; totalGb: numb
   };
 }
 
-async function getUptime(hostKey: HostKey): Promise<number> {
-  const out = await run(hostKey, "cat /proc/uptime");
+async function getUptime(host: HostRecord): Promise<number> {
+  const out = await run(host, "cat /proc/uptime");
   const seconds = parseFloat(out.trim().split(/\s+/)[0]);
   if (!Number.isFinite(seconds)) throw new Error("Lecture uptime invalide");
   return seconds;
 }
 
-async function getDisk(hostKey: HostKey, mountPath: string) {
-  const out = await run(hostKey, `df -B1 ${mountPath} | tail -1`);
+async function getDisk(host: HostRecord, mountPath: string) {
+  const out = await run(host, `df -B1 ${mountPath} | tail -1`);
   const cols = out.trim().split(/\s+/);
   const totalB = Number(cols[1]);
   const usedB = Number(cols[2]);
@@ -113,27 +115,27 @@ async function getDisk(hostKey: HostKey, mountPath: string) {
   return { totalGb: totalB / 1e9, usedGb: usedB / 1e9, usagePct: (usedB / totalB) * 100 };
 }
 
-async function getDiskTemp(hostKey: HostKey): Promise<number> {
+async function getDiskTemp(host: HostRecord): Promise<number> {
   // smartctl needs root; if the ZimaOS sudoers allow passwordless smartctl this works,
   // otherwise we report the metric as unavailable rather than invent a number.
-  const out = await run(hostKey, "smartctl -A /dev/sda 2>/dev/null | grep -i Temperature_Celsius");
+  const out = await run(host, "smartctl -A /dev/sda 2>/dev/null | grep -i Temperature_Celsius");
   const cols = out.trim().split(/\s+/);
   const temp = Number(cols[9]);
   if (!Number.isFinite(temp)) throw new Error("smartctl indisponible (droits root requis)");
   return temp;
 }
 
-async function getDiskHealth(hostKey: HostKey): Promise<string> {
-  const out = await run(hostKey, "smartctl -H /dev/sda 2>/dev/null | grep -i 'overall-health'");
+async function getDiskHealth(host: HostRecord): Promise<string> {
+  const out = await run(host, "smartctl -H /dev/sda 2>/dev/null | grep -i 'overall-health'");
   if (!out.trim()) throw new Error("smartctl indisponible (droits root requis)");
   return out.toLowerCase().includes("passed") ? "Bon état" : "Attention";
 }
 
-async function getGpu(hostKey: HostKey) {
+async function getGpu(host: HostRecord) {
   // 1. Dedicated NVIDIA GPU, if present.
   try {
     const out = await run(
-      hostKey,
+      host,
       "nvidia-smi --query-gpu=utilization.gpu,clocks.gr,clocks.max.gr --format=csv,noheader,nounits 2>/dev/null"
     );
     const [usage, freq, maxFreq] = out.trim().split(",").map((s) => Number(s.trim()));
@@ -143,8 +145,8 @@ async function getGpu(hostKey: HostKey) {
   }
 
   // 2. Intel integrated GPU (N5105 / J4125 use the i915 driver) via sysfs frequency.
-  const cur = await run(hostKey, "cat /sys/class/drm/card0/gt_cur_freq_mhz 2>/dev/null");
-  const max = await run(hostKey, "cat /sys/class/drm/card0/gt_max_freq_mhz 2>/dev/null");
+  const cur = await run(host, "cat /sys/class/drm/card0/gt_cur_freq_mhz 2>/dev/null");
+  const max = await run(host, "cat /sys/class/drm/card0/gt_max_freq_mhz 2>/dev/null");
   const curMhz = parseInt(cur.trim(), 10);
   const maxMhz = parseInt(max.trim(), 10);
   if (!Number.isFinite(curMhz) || !Number.isFinite(maxMhz) || maxMhz <= 0) {
@@ -153,24 +155,25 @@ async function getGpu(hostKey: HostKey) {
   return { freqMhz: curMhz, maxFreqMhz: maxMhz, usagePct: (curMhz / maxMhz) * 100 };
 }
 
-async function getOsName(hostKey: HostKey): Promise<string> {
+async function getOsName(host: HostRecord): Promise<string> {
   try {
-    const out = await run(hostKey, "cat /etc/os-release | grep '^PRETTY_NAME' | cut -d= -f2");
-    return out.trim().replace(/"/g, "") || (hostKey === "local" ? `${os.type()} ${os.release()}` : "Linux");
+    const out = await run(host, "cat /etc/os-release | grep '^PRETTY_NAME' | cut -d= -f2");
+    return out.trim().replace(/"/g, "") || (host.isLocal ? `${os.type()} ${os.release()}` : "Linux");
   } catch {
-    return hostKey === "local" ? `${os.type()} ${os.release()}` : "Linux";
+    return host.isLocal ? `${os.type()} ${os.release()}` : "Linux";
   }
 }
 
-export async function getZimaStats(hostKey: HostKey, diskPath: string): Promise<ZimaStats> {
-  const host = HOSTS[hostKey];
+export async function getZimaStats(host: HostRecord): Promise<ZimaStats> {
+  const diskPath = host.filesRoot || "/DATA";
 
-  if (hostKey === "remote" && !isRemoteConfigured()) {
+  if (!host.isLocal && !isHostConfigured(host)) {
     return {
+      id: host.id,
       name: host.name,
       ip: host.ip,
       reachable: false,
-      reason: "SSH non configuré pour le ZimaOS Principal (secrets ZIMA2_SSH_* manquants)",
+      reason: `SSH non configuré pour ${host.name} (adresse/utilisateur/mot de passe manquants)`,
       os: "Inconnu",
       uptimeSeconds: null,
       cpu: { usage: null, temperature: null },
@@ -181,20 +184,21 @@ export async function getZimaStats(hostKey: HostKey, diskPath: string): Promise<
   }
 
   const [osName, cpuUsageR, cpuTempR, ramR, uptimeR, diskR, diskTempR, diskHealthR, gpuR] = await Promise.all([
-    getOsName(hostKey),
-    safe(() => getCpuUsage(hostKey)),
-    safe(() => getCpuTemp(hostKey)),
-    safe(() => getRam(hostKey)),
-    safe(() => getUptime(hostKey)),
-    safe(() => getDisk(hostKey, diskPath)),
-    safe(() => getDiskTemp(hostKey)),
-    safe(() => getDiskHealth(hostKey)),
-    safe(() => getGpu(hostKey)),
+    getOsName(host),
+    safe(() => getCpuUsage(host)),
+    safe(() => getCpuTemp(host)),
+    safe(() => getRam(host)),
+    safe(() => getUptime(host)),
+    safe(() => getDisk(host, diskPath)),
+    safe(() => getDiskTemp(host)),
+    safe(() => getDiskHealth(host)),
+    safe(() => getGpu(host)),
   ]);
 
   const reachable = cpuUsageR.available || ramR.available || uptimeR.available;
 
   return {
+    id: host.id,
     name: host.name,
     ip: host.ip,
     reachable,

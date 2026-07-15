@@ -5,16 +5,10 @@ import {
 } from "lucide-react";
 import axios from "axios";
 
-type HostKey = "local" | "remote";
-
 interface FileEntry {
   name: string; path: string; isDirectory: boolean; sizeBytes: number; modifiedAt: string | null;
 }
-
-const HOST_LABELS: Record<HostKey, { label: string; ip: string }> = {
-  local:  { label: "ZimaOS Local (192.168.1.3)",   ip: "192.168.1.3" },
-  remote: { label: "ZimaOS Principal (192.168.1.25)", ip: "192.168.1.25" },
-};
+interface HostSummary { id: string; name: string; ip: string; isLocal: boolean; }
 
 function formatSize(bytes: number) {
   if (bytes === 0) return "—";
@@ -25,7 +19,8 @@ function formatSize(bytes: number) {
 }
 
 export default function Fichiers() {
-  const [host, setHost]       = useState<HostKey>("local");
+  const [hosts, setHosts]     = useState<HostSummary[]>([]);
+  const [host, setHost]       = useState<string>("");
   const [dirPath, setDirPath] = useState("");
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [root, setRoot]       = useState("");
@@ -35,7 +30,15 @@ export default function Fichiers() {
   const [copied, setCopied]   = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const load = useCallback(async (h: HostKey, p: string) => {
+  useEffect(() => {
+    axios.get("/api/hosts").then((r) => {
+      setHosts(r.data.hosts);
+      if (r.data.hosts.length > 0) setHost((prev) => prev || r.data.hosts[0].id);
+    }).catch(() => {});
+  }, []);
+
+  const load = useCallback(async (h: string, p: string) => {
+    if (!h) return;
     setLoading(true); setError("");
     try {
       const r = await axios.get(`/api/files/${h}`, { params: { path: p } });
@@ -47,9 +50,9 @@ export default function Fichiers() {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(host, dirPath); }, [host, dirPath, load]);
+  useEffect(() => { if (host) load(host, dirPath); }, [host, dirPath, load]);
 
-  const switchHost = (h: HostKey) => { setHost(h); setDirPath(""); setShareUrl(null); };
+  const switchHost = (h: string) => { setHost(h); setDirPath(""); setShareUrl(null); };
   const openDir = (p: string) => { setDirPath(p); setShareUrl(null); };
   const goUp = () => {
     const parts = dirPath.split("/").filter(Boolean);
@@ -100,7 +103,7 @@ export default function Fichiers() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-black text-white tracking-wide">Fichiers</h1>
-          <p className="text-xs text-gray-600 mt-0.5">Stockage, transfert et partage sur les 2 ZimaOS</p>
+          <p className="text-xs text-gray-600 mt-0.5">Stockage, transfert et partage sur tous les systèmes surveillés</p>
         </div>
         <button onClick={() => load(host, dirPath)} className="text-gray-600 hover:text-gray-400 transition-colors p-2">
           <RefreshCw className="h-4 w-4" />
@@ -108,17 +111,17 @@ export default function Fichiers() {
       </div>
 
       {/* Host switcher */}
-      <div className="flex gap-2">
-        {(Object.keys(HOST_LABELS) as HostKey[]).map((h) => (
-          <button key={h} onClick={() => switchHost(h)}
+      <div className="flex gap-2 flex-wrap">
+        {hosts.map((h) => (
+          <button key={h.id} onClick={() => switchHost(h.id)}
             className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-              host === h ? "text-white" : "text-gray-500 hover:text-gray-300"
+              host === h.id ? "text-white" : "text-gray-500 hover:text-gray-300"
             }`}
-            style={host === h
+            style={host === h.id
               ? { background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.3)" }
               : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
             <Server className="h-3.5 w-3.5" />
-            {HOST_LABELS[h].label}
+            {h.name} <span className="text-gray-600 font-mono text-[10px]">({h.ip})</span>
           </button>
         ))}
       </div>

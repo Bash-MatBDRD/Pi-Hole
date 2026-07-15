@@ -1,39 +1,49 @@
 // ──────────────────────────────────────────────────────────────────────────────
 // Shared host definitions + remote SSH connection helper.
 //
-// "local"  = the ZimaOS machine actually running this Node process (read via
-//            local system calls — no network hop, no credentials needed).
-// "remote" = the other ZimaOS box, reached over SSH using credentials
-//            provided as secrets (ZIMA2_SSH_HOST / ZIMA2_SSH_USER / ZIMA2_SSH_PASSWORD).
+// Hosts are loaded from the persistent store (server/store.ts) so the user can
+// add up to a handful of extra ZimaOS/servers beyond the built-in "local"
+// (the machine actually running this Node process — read via local system
+// calls, no credentials needed) and "remote" (seeded from the ZIMA2_SSH_*
+// secrets) entries.
 // ──────────────────────────────────────────────────────────────────────────────
 import { Client, type ConnectConfig } from "ssh2";
+import { getHost, listHosts, MAX_CUSTOM_HOSTS, type HostRecord } from "./store";
 
-export type HostKey = "local" | "remote";
+export { MAX_CUSTOM_HOSTS };
 
-export const HOSTS: Record<HostKey, { name: string; ip: string }> = {
-  local: { name: "ZimaOS Local (hôte du panel)", ip: "192.168.1.3" },
-  remote: { name: "ZimaOS Principal", ip: process.env.ZIMA2_SSH_HOST || "192.168.1.25" },
-};
+export type HostKey = string;
+export type { HostRecord };
 
-export function isRemoteConfigured(): boolean {
-  return Boolean(process.env.ZIMA2_SSH_HOST && process.env.ZIMA2_SSH_USER && process.env.ZIMA2_SSH_PASSWORD);
+export function getHosts(): HostRecord[] {
+  return listHosts();
 }
 
-export function remoteConnectConfig(): ConnectConfig {
+export function requireHost(id: HostKey): HostRecord {
+  const host = getHost(id);
+  if (!host) throw new Error("Système introuvable");
+  return host;
+}
+
+export function isHostConfigured(host: HostRecord): boolean {
+  return host.isLocal || Boolean(host.ip && host.sshUser && host.sshPassword);
+}
+
+export function hostConnectConfig(host: HostRecord): ConnectConfig {
   return {
-    host: process.env.ZIMA2_SSH_HOST,
-    username: process.env.ZIMA2_SSH_USER,
-    password: process.env.ZIMA2_SSH_PASSWORD,
+    host: host.ip,
+    username: host.sshUser,
+    password: host.sshPassword,
     port: 22,
     readyTimeout: 8000,
   };
 }
 
-/** Run a shell command on the remote ZimaOS over SSH and resolve with stdout. */
-export function execRemote(command: string, timeoutMs = 8000): Promise<string> {
+/** Run a shell command on a remote host over SSH and resolve with stdout. */
+export function execRemote(host: HostRecord, command: string, timeoutMs = 8000): Promise<string> {
   return new Promise((resolve, reject) => {
-    if (!isRemoteConfigured()) {
-      return reject(new Error("SSH non configuré (ZIMA2_SSH_HOST/USER/PASSWORD manquants)"));
+    if (!isHostConfigured(host)) {
+      return reject(new Error(`SSH non configuré pour ${host.name} (adresse/utilisateur/mot de passe manquants)`));
     }
     const conn = new Client();
     const timer = setTimeout(() => {
@@ -65,6 +75,6 @@ export function execRemote(command: string, timeoutMs = 8000): Promise<string> {
         clearTimeout(timer);
         reject(err);
       })
-      .connect(remoteConnectConfig());
+      .connect(hostConnectConfig(host));
   });
 }

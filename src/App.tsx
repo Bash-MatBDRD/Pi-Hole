@@ -47,6 +47,7 @@ function LoginScreen({ username, password, onLogin }: {
   const [inputUser, setInputUser] = useState(username);
   const [inputPwd,  setInputPwd]  = useState("");
   const [showPwd,   setShowPwd]   = useState(false);
+  const [showUser,  setShowUser]  = useState(false);
   const [error,     setError]     = useState("");
   const { color, style } = useTheme();
 
@@ -86,13 +87,18 @@ function LoginScreen({ username, password, onLogin }: {
             <div className="relative">
               <User className="absolute left-3.5 top-3.5 h-4 w-4 text-gray-700" />
               <input
-                type="text"
+                type={showUser ? "text" : "password"}
+                autoComplete="off"
                 value={inputUser}
                 onChange={(e) => { setInputUser(e.target.value); setError(""); }}
-                placeholder="Mathieu"
-                className="w-full rounded-xl py-3 pl-11 pr-4 text-sm text-white placeholder:text-gray-700 focus:outline-none transition-colors"
+                placeholder="Identifiant"
+                className="w-full rounded-xl py-3 pl-11 pr-11 text-sm text-white placeholder:text-gray-700 focus:outline-none transition-colors"
                 style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
               />
+              <button type="button" onClick={() => setShowUser(!showUser)}
+                className="absolute right-3.5 top-3.5 text-gray-700 hover:text-gray-400 transition-colors">
+                {showUser ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
             </div>
           </div>
 
@@ -227,7 +233,14 @@ export default function App() {
       <LoginScreen
         username={username}
         password={password}
-        onLogin={() => setIsLoggedIn(true)}
+        onLogin={() => {
+          setIsLoggedIn(true);
+          fetch("/api/activity", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ category: "auth", action: "Connexion", details: username }),
+          }).catch(() => {});
+        }}
       />
     );
   }
