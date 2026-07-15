@@ -99,7 +99,7 @@ function defaultStore(): StoreShape {
       token: "",
       isConnected: false,
     },
-    discordConfig: { token: "", botName: "Domobot", prefix: "/", status: "online" },
+    discordConfig: { token: "", botName: "NexusBot", prefix: "!", status: "online" },
     devices: DEFAULT_DEVICES,
     discordLogs: [
       { timestamp: new Date(now - 3600000).toISOString(), user: "Mathieu", command: "/ha status", response: "✅ Home Assistant: Connecté | 9 appareils détectés." },

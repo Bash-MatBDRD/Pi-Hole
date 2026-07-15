@@ -11,6 +11,7 @@ import {
 } from "./server/files";
 import * as store from "./server/store";
 import { addHost, removeHost } from "./server/store";
+import { startDiscordBot, getBotStats } from "./server/discord";
 
 dotenv.config();
 
@@ -25,6 +26,7 @@ app.use(express.json());
 // device state survive restarts. Only the activity/Discord logs are treated as
 // a "cache" and pruned automatically once a week.
 store.startWeeklyCleanupScheduler();
+startDiscordBot();
 
 function safeHostPublic(h: ReturnType<typeof getHosts>[number]) {
   // Never leak SSH credentials to the client — only whether they're set.
@@ -37,18 +39,9 @@ app.get("/api/system/stats", async (req, res) => {
   try {
     const hosts = getHosts();
     const stats = await Promise.all(hosts.map((h) => getZimaStats(h)));
-    const discordConfig = store.getDiscordConfig();
     res.json({
       hosts: stats,
-      discordBot: {
-        name: discordConfig.botName,
-        status: discordConfig.status,
-        ping: Math.floor(18 + Math.random() * 5),
-        guilds: 3,
-        members: 142,
-        shards: 1,
-        commandsHandled: 489
-      }
+      discordBot: getBotStats(),
     });
   } catch (err: any) {
     res.status(500).json({ error: "Impossible de lire les statistiques système", details: err.message });
