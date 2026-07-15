@@ -1,0 +1,2 @@
+- [Secrets pasted as free text](secret-field-hygiene.md) — users sometimes paste a whole sentence into one secret field instead of one value; validate the shape and ask them to redo it before trusting it.
+- [Local-vs-remote real system stats](local-remote-system-stats.md) — pattern for a panel that runs ON one of two monitored hosts: read local host natively, SSH to the other, never fabricate unavailable metrics.
