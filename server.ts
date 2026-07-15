@@ -247,46 +247,69 @@ async function fetchRealHADevices() {
   const haConfig = store.getHaConfig();
   if (!haConfig.isConnected || !haConfig.url) return null;
 
+  const base = haConfig.url.replace(/\/$/, "");
+  const headers = {
+    Authorization: `Bearer ${haConfig.token}`,
+    "Content-Type": "application/json",
+  };
+
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
 
   try {
-    const statesUrl = `${haConfig.url.replace(/\/$/, "")}/api/states`;
-    const response = await fetch(statesUrl, {
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${haConfig.token}`,
-        "Content-Type": "application/json",
-      }
-    });
+    // Fetch states + entity registry in parallel to get real area assignments
+    const [statesRes, entityRegRes] = await Promise.all([
+      fetch(`${base}/api/states`,                          { signal: controller.signal, headers }),
+      fetch(`${base}/api/config/entity_registry/list`,    { signal: controller.signal, headers }),
+    ]);
     clearTimeout(timeoutId);
 
-    if (response.ok) {
-      const states = await response.json();
-      // Map relevant domains (light, switch, cover, climate, media_player, camera)
-      return states.filter((s: any) => {
-        const domain = s.entity_id.split(".")[0];
-        return ["light", "switch", "cover", "climate", "media_player", "camera"].includes(domain);
-      }).map((s: any) => ({
-        id: s.entity_id,
-        name: s.attributes.friendly_name || s.entity_id,
-        type: s.entity_id.split(".")[0],
-        state: s.state,
-        room: s.attributes.area_id || "Général",
-        attributes: {
-          brightness: s.attributes.brightness ? Math.round((s.attributes.brightness / 255) * 100) : 0,
-          color_temp: s.attributes.color_temp ? "warm" : "daylight",
-          power_w: s.attributes.power || s.attributes.current_power_w || 0,
-          current_temperature: s.attributes.current_temperature || 20,
-          temperature: s.attributes.temperature || 21,
-          volume_level: s.attributes.volume_level || 0.5,
-          media_title: s.attributes.media_title || "",
-          media_artist: s.attributes.media_artist || "",
-        }
-      }));
-    } else {
+    if (!statesRes.ok) {
       store.setHaConfig({ isConnected: false });
+      return null;
     }
+
+    const states = await statesRes.json();
+
+    // Build entity_id → area_id map from entity registry
+    const entityAreaMap: Record<string, string> = {};
+    if (entityRegRes.ok) {
+      const entityReg: any[] = await entityRegRes.json();
+      for (const entry of entityReg) {
+        if (entry.entity_id && entry.area_id) {
+          entityAreaMap[entry.entity_id] = entry.area_id;
+        }
+      }
+    }
+
+    const ALLOWED_DOMAINS = ["light", "switch", "cover", "climate", "media_player", "camera"];
+
+    return states
+      .filter((s: any) => ALLOWED_DOMAINS.includes(s.entity_id.split(".")[0]))
+      .map((s: any) => {
+        const domain = s.entity_id.split(".")[0];
+        const rawBri = s.attributes.brightness;
+
+        return {
+          id: s.entity_id,
+          name: s.attributes.friendly_name || s.entity_id,
+          type: domain,
+          state: s.state,
+          // area_id from entity registry takes priority; HA never puts it in state attributes
+          room: entityAreaMap[s.entity_id] || "Général",
+          attributes: {
+            // ── Pass through ALL original HA attributes ──────────────────
+            ...s.attributes,
+            // ── Normalized fields the UI expects ────────────────────────
+            // brightness: HA sends 0-255, UI expects 0-100
+            brightness: rawBri != null ? Math.round((rawBri / 255) * 100) : (s.state === "on" ? 100 : 0),
+            // power: try multiple HA attribute names
+            power_w: s.attributes.power ?? s.attributes.current_power_w ?? s.attributes.watt ?? 0,
+            // today's energy (kWh)
+            today_energy_kwh: s.attributes.today_energy_kwh ?? s.attributes.energy_today ?? 0,
+          },
+        };
+      });
   } catch (err) {
     clearTimeout(timeoutId);
     console.error("Failed to fetch real HA devices (auto-disabling live sync):", err);
@@ -424,28 +447,24 @@ app.post("/api/home-assistant/command", async (req, res) => {
   res.json({ success: true, isReal: false, device });
 });
 
-// API - HOME ASSISTANT AREAS (resolves area_id → name via template API)
+// API - HOME ASSISTANT AREAS (area_id → area name, via area registry)
 app.get("/api/home-assistant/areas", async (req, res) => {
   const haConfig = store.getHaConfig();
   if (!haConfig.isConnected || !haConfig.url) {
-    return res.json({ Salon: "Salon", Cuisine: "Cuisine", Chambre: "Chambre", Extérieur: "Extérieur" });
+    return res.json({});
   }
   try {
-    const tplUrl = `${haConfig.url.replace(/\/$/, "")}/api/template`;
-    const tpl = `{% set ns = namespace(r=[]) %}{% for aid in areas() %}{% set ns.r = ns.r + [aid ~ '|' ~ area_name(aid)] %}{% endfor %}{{ ns.r | join(',') }}`;
-    const r = await fetch(tplUrl, {
-      method: "POST",
+    const r = await fetch(`${haConfig.url.replace(/\/$/, "")}/api/config/area_registry/list`, {
       headers: { Authorization: `Bearer ${haConfig.token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ template: tpl }),
       signal: AbortSignal.timeout(5000),
     });
     if (!r.ok) return res.json({});
-    const text = await r.text();
+    const areas: any[] = await r.json();
+    // Build { area_id: "Salon", ... }
     const map: Record<string, string> = {};
-    text.split(",").forEach(pair => {
-      const [id, name] = pair.trim().split("|");
-      if (id && name) map[id.trim()] = name.trim();
-    });
+    for (const a of areas) {
+      if (a.area_id && a.name) map[a.area_id] = a.name;
+    }
     return res.json(map);
   } catch {
     return res.json({});
