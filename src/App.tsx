@@ -14,7 +14,7 @@ import Domotique  from "./pages/Domotique";
 import Spotify    from "./pages/Spotify";
 import Discord    from "./pages/Discord";
 import ZimaOS     from "./pages/ZimaOS";
-import AI         from "./pages/AI";
+import Fichiers   from "./pages/Fichiers";
 import Settings   from "./pages/Settings";
 
 import { getThemeColor, getLogoStyle, getLetterStyle, getContainerShape, getFontClass } from "./lib/theme";
@@ -178,7 +178,7 @@ function AppLayout({ onLock, onLogout, username }: {
               <Route path="/spotify"   element={<Spotify />} />
               <Route path="/discord"   element={<Discord />} />
               <Route path="/zimaos"    element={<ZimaOS />} />
-              <Route path="/ai"        element={<AI />} />
+              <Route path="/fichiers"  element={<Fichiers />} />
               <Route path="/settings"  element={<Settings />} />
               <Route path="*"          element={<Navigate to="/dashboard" replace />} />
             </Routes>

@@ -1,32 +1,49 @@
 import React, { useState, useEffect } from "react";
 import {
   Server, Cpu, Database, HardDrive, Thermometer, RefreshCw,
-  Wifi, Activity, Clock,
+  Activity, Clock, MonitorSmartphone, AlertTriangle,
 } from "lucide-react";
 import axios from "axios";
 
+interface MetricResult<T> { available: boolean; reason?: string; data?: T; }
+
 interface ZimaStats {
-  name: string; ip: string; os: string; platform: string; uptime: number;
-  cpu: { usage: number; temperature: number };
-  ram: { used: number; total: number; usage: number };
-  disk: { path: string; type: string; total: number; used: number; usage: number; temperature: number; health: string; readSpeed: number; writeSpeed: number; };
+  name: string; ip: string; reachable: boolean; reason?: string; os: string;
+  uptimeSeconds: number | null;
+  cpu: { usage: number | null; temperature: number | null };
+  ram: { usedGb: number | null; totalGb: number | null; usagePct: number | null };
+  disk: {
+    path: string; totalGb: number | null; usedGb: number | null; usagePct: number | null;
+    temperature: MetricResult<number>; health: MetricResult<string>;
+  };
+  gpu: MetricResult<{ freqMhz: number; maxFreqMhz: number; usagePct: number }>;
 }
 interface SystemStats {
   zima1: ZimaStats; zima2: ZimaStats;
   discordBot: { name: string; status: string; ping: number; guilds: number; members: number; shards: number; commandsHandled: number; };
 }
 
-function formatUptime(s: number) {
+function formatUptime(s: number | null) {
+  if (s === null) return "—";
   const d = Math.floor(s / 86400);
   const h = Math.floor((s % 86400) / 3600);
   const m = Math.floor((s % 3600) / 60);
   return `${d}j ${h}h ${m}m`;
 }
 
-function ProgressBar({ value, color }: { value: number; color: string }) {
+function ProgressBar({ value, color }: { value: number | null; color: string }) {
   return (
     <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
-      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.min(value, 100)}%`, background: color }} />
+      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.min(value ?? 0, 100)}%`, background: value === null ? "#3f3f46" : color }} />
+    </div>
+  );
+}
+
+function Unavailable({ reason }: { reason?: string }) {
+  return (
+    <div className="flex items-center gap-1.5 text-[10px] text-gray-600">
+      <AlertTriangle className="h-3 w-3" />
+      <span>Non disponible{reason ? ` — ${reason}` : ""}</span>
     </div>
   );
 }
@@ -40,21 +57,30 @@ function ServerCard({ server, accent }: { server: ZimaStats; accent: string }) {
         <div>
           <h2 className="text-sm font-black text-white">{server.name}</h2>
           <p className="text-[10px] text-gray-600 font-mono mt-0.5">{server.ip} · {server.os}</p>
-          <p className="text-[10px] text-gray-700 mt-0.5">{server.platform}</p>
         </div>
         <div className="flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full"
-          style={{ background: `${accent}15`, border: `1px solid ${accent}30`, color: accent }}>
-          <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: accent }} />
-          En ligne
+          style={server.reachable
+            ? { background: `${accent}15`, border: `1px solid ${accent}30`, color: accent }
+            : { background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171" }}>
+          <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: server.reachable ? accent : "#f87171" }} />
+          {server.reachable ? "En ligne" : "Inaccessible"}
         </div>
       </div>
+
+      {!server.reachable && server.reason && (
+        <div className="rounded-xl px-3 py-2 text-[10px] text-red-300 flex items-start gap-2"
+          style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)" }}>
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+          <span>{server.reason}</span>
+        </div>
+      )}
 
       {/* Uptime */}
       <div className="flex items-center gap-2 rounded-xl px-3 py-2"
         style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
         <Clock className="h-3.5 w-3.5 text-gray-600" />
         <span className="text-[10px] text-gray-500">Uptime:</span>
-        <span className="text-[10px] font-mono text-white ml-auto">{formatUptime(server.uptime)}</span>
+        <span className="text-[10px] font-mono text-white ml-auto">{formatUptime(server.uptimeSeconds)}</span>
       </div>
 
       {/* CPU */}
@@ -65,14 +91,38 @@ function ServerCard({ server, accent }: { server: ZimaStats; accent: string }) {
             <span className="text-xs font-semibold text-white">Processeur</span>
           </div>
           <div className="flex items-center gap-2 text-[10px]">
-            <span style={{ color: accent }}>{server.cpu.usage.toFixed(1)}%</span>
-            <span className="text-gray-700">·</span>
-            <span className="text-orange-400 flex items-center gap-1">
-              <Thermometer className="h-3 w-3" />{server.cpu.temperature}°C
-            </span>
+            <span style={{ color: accent }}>{server.cpu.usage !== null ? `${server.cpu.usage.toFixed(1)}%` : "—"}</span>
+            {server.cpu.temperature !== null && (
+              <>
+                <span className="text-gray-700">·</span>
+                <span className="text-orange-400 flex items-center gap-1">
+                  <Thermometer className="h-3 w-3" />{server.cpu.temperature.toFixed(0)}°C
+                </span>
+              </>
+            )}
           </div>
         </div>
         <ProgressBar value={server.cpu.usage} color={accent} />
+      </div>
+
+      {/* GPU */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <MonitorSmartphone className="h-3.5 w-3.5 text-fuchsia-400" />
+            <span className="text-xs font-semibold text-white">GPU</span>
+          </div>
+          {server.gpu.available && server.gpu.data ? (
+            <span className="text-[10px] text-fuchsia-400">
+              {server.gpu.data.usagePct.toFixed(0)}% · {server.gpu.data.freqMhz}/{server.gpu.data.maxFreqMhz} MHz
+            </span>
+          ) : null}
+        </div>
+        {server.gpu.available && server.gpu.data ? (
+          <ProgressBar value={server.gpu.data.usagePct} color="#e879f9" />
+        ) : (
+          <Unavailable reason={server.gpu.reason} />
+        )}
       </div>
 
       {/* RAM */}
@@ -82,9 +132,11 @@ function ServerCard({ server, accent }: { server: ZimaStats; accent: string }) {
             <Database className="h-3.5 w-3.5 text-cyan-400" />
             <span className="text-xs font-semibold text-white">Mémoire RAM</span>
           </div>
-          <span className="text-[10px] text-cyan-400">{server.ram.used.toFixed(2)} / {server.ram.total} Go ({server.ram.usage.toFixed(1)}%)</span>
+          <span className="text-[10px] text-cyan-400">
+            {server.ram.usedGb !== null ? `${server.ram.usedGb.toFixed(2)} / ${server.ram.totalGb?.toFixed(1)} Go (${server.ram.usagePct?.toFixed(1)}%)` : "—"}
+          </span>
         </div>
-        <ProgressBar value={server.ram.usage} color="#06b6d4" />
+        <ProgressBar value={server.ram.usagePct} color="#06b6d4" />
       </div>
 
       {/* Disk */}
@@ -95,21 +147,23 @@ function ServerCard({ server, accent }: { server: ZimaStats; accent: string }) {
             <HardDrive className="h-3.5 w-3.5 text-emerald-400" />
             <span className="text-xs font-semibold text-white">Stockage</span>
           </div>
-          <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
-            server.disk.health === "Excellent" || server.disk.health === "Parfait"
-              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-              : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-          }`}>{server.disk.health}</span>
+          {server.disk.health.available && server.disk.health.data ? (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+              server.disk.health.data === "Bon état"
+                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+            }`}>{server.disk.health.data}</span>
+          ) : (
+            <Unavailable reason={server.disk.health.reason} />
+          )}
         </div>
-        <ProgressBar value={server.disk.usage} color="#10b981" />
+        <ProgressBar value={server.disk.usagePct} color="#10b981" />
         <div className="grid grid-cols-2 gap-2 mt-2">
           {[
-            { label: "Utilisé",     val: `${server.disk.used.toFixed(1)} Go` },
-            { label: "Total",       val: `${server.disk.total.toFixed(1)} Go` },
-            { label: "Lecture",     val: `${server.disk.readSpeed.toFixed(1)} Mo/s` },
-            { label: "Écriture",    val: `${server.disk.writeSpeed.toFixed(1)} Mo/s` },
-            { label: "Température", val: `${server.disk.temperature.toFixed(1)}°C` },
-            { label: "Chemin",      val: server.disk.path },
+            { label: "Utilisé",      val: server.disk.usedGb !== null ? `${server.disk.usedGb.toFixed(1)} Go` : "—" },
+            { label: "Total",        val: server.disk.totalGb !== null ? `${server.disk.totalGb.toFixed(1)} Go` : "—" },
+            { label: "Température",  val: server.disk.temperature.available ? `${server.disk.temperature.data?.toFixed(0)}°C` : "Non disponible" },
+            { label: "Chemin",       val: server.disk.path },
           ].map(({ label, val }) => (
             <div key={label}>
               <div className="text-[9px] text-gray-700 uppercase tracking-wider">{label}</div>
@@ -131,14 +185,14 @@ export default function ZimaOS() {
     catch {} finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchStats(); const id = setInterval(fetchStats, 5000); return () => clearInterval(id); }, []);
+  useEffect(() => { fetchStats(); const id = setInterval(fetchStats, 8000); return () => clearInterval(id); }, []);
 
   return (
     <div className="p-5 space-y-5 max-w-6xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-black text-white tracking-wide">ZimaOS Diagnostic</h1>
-          <p className="text-xs text-gray-600 mt-0.5">Surveillance des serveurs en temps réel</p>
+          <p className="text-xs text-gray-600 mt-0.5">Statistiques système en direct des 2 serveurs</p>
         </div>
         <button onClick={fetchStats} className="text-gray-600 hover:text-gray-400 transition-colors p-2">
           <RefreshCw className="h-4 w-4" />

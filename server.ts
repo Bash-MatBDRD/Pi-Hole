@@ -1,34 +1,26 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import multer from "multer";
+import { getZimaStats } from "./server/system";
+import { HostKey } from "./server/hosts";
+import {
+  listDir, streamDownload, uploadFile, deleteEntry,
+  createShareLink, resolveShare, filesConfig,
+} from "./server/files";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 5000;
+const upload = multer({ dest: "/tmp/nexus-uploads" });
 
 app.use(express.json());
 
-// Initialize Gemini SDK with telemetry headers as required by guidelines
-const apiKey = process.env.GEMINI_API_KEY;
-let ai: GoogleGenAI | null = null;
-
-if (apiKey && apiKey !== "MY_GEMINI_API_KEY") {
-  try {
-    ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        }
-      }
-    });
-    console.log("Gemini SDK initialized successfully.");
-  } catch (err) {
-    console.error("Failed to initialize Gemini SDK:", err);
-  }
+function parseHostKey(value: any): HostKey {
+  if (value === "local" || value === "remote") return value;
+  throw new Error("Hôte invalide (attendu: local | remote)");
 }
 
 // In-Memory Configurations (Persisted during server runtime)
@@ -135,91 +127,100 @@ let mockDiscordLogs = [
   { timestamp: new Date(Date.now() - 300000).toISOString(), user: "ZimaOS_Zera", command: "HDD Health Check", response: "Hard Drive Check: Perfect (41°C) - 0 bad sectors" }
 ];
 
-// System Statistics Simulation (Fluctuates on call for two ZimaOS servers)
-function getSystemStats() {
-  const cpu1Base = 15 + Math.sin(Date.now() / 12000) * 4;
-  const ram1Base = 38 + Math.cos(Date.now() / 18000) * 3;
-  
-  const cpu2Base = 8 + Math.sin(Date.now() / 15000) * 2;
-  const ram2Base = 52 + Math.cos(Date.now() / 25000) * 1.5;
-
-  const hddReadSpeed = 45 + Math.abs(Math.sin(Date.now() / 5000)) * 65;
-  const hddWriteSpeed = 12 + Math.abs(Math.cos(Date.now() / 7000)) * 28;
-  const hddTemp = 39 + Math.sin(Date.now() / 60000) * 1.5;
-
-  return {
-    zima1: {
-      name: "ZimaOS Principal (Bot Host)",
-      ip: "192.168.1.3",
-      os: "ZimaOS v1.2.4",
-      platform: "Intel Celeron N5105 (4 Cores @ 2.0GHz)",
-      uptime: Math.floor(642500 + Date.now() / 1000) % 10000000,
-      cpu: {
-        usage: parseFloat(cpu1Base.toFixed(1)),
-        temperature: Math.floor(41 + Math.random() * 2)
-      },
-      ram: {
-        used: parseFloat((3.0 + Math.random() * 0.1).toFixed(2)),
-        total: 8.0,
-        usage: parseFloat(ram1Base.toFixed(1))
-      },
-      disk: {
-        path: "/mnt/hdd_principal",
-        type: "HDD Seagate Barracuda (1To Stockage)",
-        total: 931.5,
-        used: 382.4,
-        usage: 41.0,
-        temperature: parseFloat(hddTemp.toFixed(1)),
-        health: "Parfait",
-        readSpeed: parseFloat(hddReadSpeed.toFixed(1)),
-        writeSpeed: parseFloat(hddWriteSpeed.toFixed(1))
+// API - SYSTEM STATS (real readings from both ZimaOS boxes — see server/system.ts)
+app.get("/api/system/stats", async (req, res) => {
+  try {
+    const [local, remote] = await Promise.all([
+      getZimaStats("local", filesConfig.local.root),
+      getZimaStats("remote", filesConfig.remote.root),
+    ]);
+    res.json({
+      zima1: local,
+      zima2: remote,
+      discordBot: {
+        name: discordConfig.botName,
+        status: discordConfig.status,
+        ping: Math.floor(18 + Math.random() * 5),
+        guilds: 3,
+        members: 142,
+        shards: 1,
+        commandsHandled: 489
       }
-    },
-    zima2: {
-      name: "ZimaOS Stockage (NAS & HA)",
-      ip: "192.168.1.25",
-      os: "ZimaOS v1.2.4",
-      platform: "Intel Celeron J4125 (4 Cores @ 2.0GHz)",
-      uptime: Math.floor(1254300 + Date.now() / 1000) % 20000000,
-      cpu: {
-        usage: parseFloat(cpu2Base.toFixed(1)),
-        temperature: Math.floor(44 + Math.random() * 3)
-      },
-      ram: {
-        used: parseFloat((4.2 + Math.random() * 0.15).toFixed(2)),
-        total: 8.0,
-        usage: parseFloat(ram2Base.toFixed(1))
-      },
-      disk: {
-        path: "/mnt/ssd_nvme_storage",
-        type: "SSD NVMe M.2 (1To) + SSD Crucial (2To)",
-        total: 2794.5,
-        used: 842.1,
-        usage: 30.1,
-        temperature: 32,
-        health: "Excellent",
-        readSpeed: 520,
-        writeSpeed: 480
-      }
-    },
-    discordBot: {
-      name: discordConfig.botName,
-      status: discordConfig.status,
-      ping: Math.floor(18 + Math.random() * 5),
-      guilds: 3,
-      members: 142,
-      shards: 1,
-      commandsHandled: 489
-    }
-  };
-}
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: "Impossible de lire les statistiques système", details: err.message });
+  }
+});
 
-// Ensure camera feed updates visually by generating a pseudo live feed identifier
-let cameraStreamMockOffset = 0;
+// API - FILES: browse, download, upload, delete, share (see server/files.ts)
+app.get("/api/files/:host", async (req, res) => {
+  try {
+    const hostKey = parseHostKey(req.params.host);
+    const dirPath = typeof req.query.path === "string" ? req.query.path : "";
+    const entries = await listDir(hostKey, dirPath);
+    entries.sort((a, b) => (a.isDirectory === b.isDirectory ? a.name.localeCompare(b.name) : a.isDirectory ? -1 : 1));
+    res.json({ path: dirPath, root: filesConfig[hostKey].root, entries });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
-// API - SYSTEM STATS
-app.get("/api/system/stats", (req, res) => {
-  res.json(getSystemStats());
+app.get("/api/files/:host/download", async (req, res) => {
+  try {
+    const hostKey = parseHostKey(req.params.host);
+    const filePath = String(req.query.path || "");
+    const filename = filePath.split("/").pop() || "fichier";
+    await streamDownload(hostKey, filePath, res, filename);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/files/:host/upload", upload.single("file"), async (req, res) => {
+  try {
+    const hostKey = parseHostKey(req.params.host);
+    const dirPath = String(req.body.path || "");
+    if (!req.file) return res.status(400).json({ error: "Aucun fichier reçu" });
+    await uploadFile(hostKey, dirPath, req.file.originalname, req.file.path);
+    res.json({ success: true, filename: req.file.originalname });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/files/:host", async (req, res) => {
+  try {
+    const hostKey = parseHostKey(req.params.host);
+    const filePath = String(req.query.path || "");
+    const isDirectory = req.query.isDirectory === "true";
+    await deleteEntry(hostKey, filePath, isDirectory);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/files/:host/share", async (req, res) => {
+  try {
+    const hostKey = parseHostKey(req.params.host);
+    const { path: filePath, filename } = req.body;
+    if (!filePath || !filename) return res.status(400).json({ error: "path et filename requis" });
+    const { token, expiresAt } = createShareLink(hostKey, filePath, filename);
+    res.json({ success: true, token, expiresAt, url: `/api/share/${token}` });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Public (unauthenticated) share-link download — local-network "airdrop"-style transfer
+app.get("/api/share/:token", async (req, res) => {
+  try {
+    const entry = resolveShare(req.params.token);
+    if (!entry) return res.status(404).json({ error: "Lien expiré ou invalide" });
+    await streamDownload(entry.hostKey, entry.relPath, res, entry.filename);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // API - DISCORD LOGS
@@ -517,147 +518,6 @@ app.get("/api/home-assistant/camera-proxy/:entity_id", async (req, res) => {
     return res.send(Buffer.from(buf));
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
-  }
-});
-
-// API - GEMINI SMART CO-PILOT (AI CONTROL & DISCORD SLASH COMMAND GENERATION)
-app.post("/api/ai/command", async (req, res) => {
-  const { prompt } = req.body;
-  if (!prompt) {
-    return res.status(400).json({ error: "Un message est requis pour l'IA." });
-  }
-
-  if (!ai) {
-    // If Gemini key is not configured, we return an elegant rich simulated response
-    // to keep the app working gracefully as demanded by "no mock data" or fallback
-    return res.json({
-      success: true,
-      simulated: true,
-      actionPerformed: "Simulé : Contrôle intelligent activé.",
-      friendlyResponse: `🤖 [Mode Démo] J'ai bien reçu votre demande : "${prompt}". (Configurez votre clé d'API Gemini dans les secrets pour activer l'analyse IA réelle !)`,
-      haServiceCalls: [
-        {
-          domain: "light",
-          service: "turn_off",
-          entity_id: "light.salon_led",
-          data: ""
-        }
-      ],
-      discordCodeSnippet: `# Exemple de commande slash Discord\n@bot.tree.command(name="off_salon", description="Éteint la lumière du salon")\nasync def off_salon(interaction: discord.Interaction):\n    # Code pour interagir avec Home Assistant\n    url = "http://YOUR_HA_IP:8123/api/services/light/turn_off"\n    headers = {"Authorization": "Bearer YOUR_TOKEN"}\n    async with aiohttp.ClientSession() as session:\n        await session.post(url, json={"entity_id": "light.salon_led"}, headers=headers)\n    await interaction.response.send_message("💡 Salon éteint !")`
-    });
-  }
-
-  try {
-    // We pass the list of available devices to the AI so it knows exactly what exists!
-    const devicesListString = JSON.stringify(mockDevices.map(d => ({ id: d.id, name: d.name, type: d.type, room: d.room })));
-
-    const systemInstruction = `
-You are a friendly, highly skilled French Smart Home Assistant & Discord Bot Architect co-pilot.
-Your goal is to parse a French natural language instruction, map it to one or more Home Assistant service calls based on the provided devices, and also generate a clean, modern Discord bot slash command code snippet (in Python discord.py) that implements this exact command.
-
-Available devices:
-${devicesListString}
-
-You MUST return a JSON object with the exact following schema:
-{
-  "actionPerformed": "Short summary of what was understood (in French).",
-  "friendlyResponse": "A polished, friendly, brief response in French confirming the action, spoken as an elite home AI.",
-  "haServiceCalls": [
-    {
-      "domain": "string (domain e.g. light, cover, climate, switch)",
-      "service": "string (service e.g. turn_on, turn_off, close_cover, set_temperature, set_brightness)",
-      "entity_id": "string (the matching target entity_id)",
-      "data": "string (optional JSON string for parameters, like '{\\"brightness\\": 80}' or '{\\"temperature\\": 22}' or '', must be empty string if none)"
-    }
-  ],
-  "discordCodeSnippet": "A fully-functional Python discord.py snippet showing a modern slash command with discord.app_commands. Make it clean, readable, professional, with comments in French explaining how to fetch and trigger it."
-}
-`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            actionPerformed: { type: Type.STRING },
-            friendlyResponse: { type: Type.STRING },
-            haServiceCalls: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  domain: { type: Type.STRING },
-                  service: { type: Type.STRING },
-                  entity_id: { type: Type.STRING },
-                  data: { type: Type.STRING }
-                },
-                required: ["domain", "service", "entity_id", "data"]
-              }
-            },
-            discordCodeSnippet: { type: Type.STRING }
-          },
-          required: ["actionPerformed", "friendlyResponse", "haServiceCalls", "discordCodeSnippet"]
-        }
-      }
-    });
-
-    const text = response.text;
-    if (!text) {
-      throw new Error("No text returned from Gemini");
-    }
-
-    const aiResult = JSON.parse(text);
-
-    // Apply the extracted commands to our mock state to make it interactive!
-    if (aiResult.haServiceCalls && aiResult.haServiceCalls.length > 0) {
-      for (const call of aiResult.haServiceCalls) {
-        const device = mockDevices.find(d => d.id === call.entity_id);
-        if (device) {
-          if (call.service === "turn_on") device.state = "on";
-          else if (call.service === "turn_off") device.state = "off";
-          else if (call.service === "close_cover") {
-            device.state = "closed";
-            device.attributes.current_position = 0;
-          } else if (call.service === "open_cover") {
-            device.state = "open";
-            device.attributes.current_position = 100;
-          } else if (call.service === "set_temperature" && call.data) {
-            try {
-              const d = JSON.parse(call.data);
-              if (d.temperature) device.attributes.temperature = d.temperature;
-              device.state = "heat";
-            } catch (e) {}
-          } else if (call.service === "set_brightness" && call.data) {
-            try {
-              const d = JSON.parse(call.data);
-              if (d.brightness) {
-                device.attributes.brightness = d.brightness;
-                device.state = d.brightness > 0 ? "on" : "off";
-              }
-            } catch (e) {}
-          }
-        }
-      }
-
-      // Add to Discord log
-      mockDiscordLogs.unshift({
-        timestamp: new Date().toISOString(),
-        user: "Gemini Copilot",
-        command: `Natural Language: "${prompt}"`,
-        response: `🤖 ${aiResult.friendlyResponse}`
-      });
-      if (mockDiscordLogs.length > 50) mockDiscordLogs.pop();
-    }
-
-    res.json({ success: true, simulated: false, ...aiResult });
-
-  } catch (error: any) {
-    console.error("Gemini AI API Call failed:", error);
-    res.status(500).json({ error: "Erreur lors de l'appel de l'IA.", details: error.message });
   }
 });
 

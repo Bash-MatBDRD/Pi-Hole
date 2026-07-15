@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  LayoutDashboard, Home, Music, MessageSquare, Server, Sparkles,
+  LayoutDashboard, Home, Music, MessageSquare, Server, FolderOpen,
   Settings, Lock, LogOut, ChevronRight, Pin, PinOff,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -31,9 +31,9 @@ const NAV_GROUPS = [
   {
     label: "Système",
     items: [
-      { to: "/zimaos",   icon: Server,    label: "ZimaOS Diagnostic" },
-      { to: "/ai",       icon: Sparkles,  label: "Copilote IA" },
-      { to: "/settings", icon: Settings,  label: "Réglages" },
+      { to: "/zimaos",   icon: Server,      label: "ZimaOS Diagnostic" },
+      { to: "/fichiers", icon: FolderOpen,  label: "Fichiers" },
+      { to: "/settings", icon: Settings,    label: "Réglages" },
     ],
   },
 ];
