@@ -257,10 +257,12 @@ async function fetchRealHADevices() {
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
   try {
-    // Fetch states + entity registry in parallel to get real area assignments
-    const [statesRes, entityRegRes] = await Promise.all([
+    // Fetch states + entity registry + device registry in parallel
+    // Area can be set at entity level OR device level — we check both.
+    const [statesRes, entityRegRes, deviceRegRes] = await Promise.all([
       fetch(`${base}/api/states`,                          { signal: controller.signal, headers }),
       fetch(`${base}/api/config/entity_registry/list`,    { signal: controller.signal, headers }),
+      fetch(`${base}/api/config/device_registry/list`,    { signal: controller.signal, headers }),
     ]);
     clearTimeout(timeoutId);
 
@@ -271,13 +273,28 @@ async function fetchRealHADevices() {
 
     const states = await statesRes.json();
 
-    // Build entity_id → area_id map from entity registry
+    // Build device_id → area_id from device registry
+    const deviceAreaMap: Record<string, string> = {};
+    if (deviceRegRes.ok) {
+      const deviceReg: any[] = await deviceRegRes.json();
+      for (const entry of deviceReg) {
+        if (entry.id && entry.area_id) {
+          deviceAreaMap[entry.id] = entry.area_id;
+        }
+      }
+    }
+
+    // Build entity_id → area_id:
+    //   1. Use entity's own area_id if set
+    //   2. Otherwise fall back to the entity's device area_id
     const entityAreaMap: Record<string, string> = {};
     if (entityRegRes.ok) {
       const entityReg: any[] = await entityRegRes.json();
       for (const entry of entityReg) {
-        if (entry.entity_id && entry.area_id) {
-          entityAreaMap[entry.entity_id] = entry.area_id;
+        if (!entry.entity_id) continue;
+        const areaId = entry.area_id || (entry.device_id ? deviceAreaMap[entry.device_id] : null);
+        if (areaId) {
+          entityAreaMap[entry.entity_id] = areaId;
         }
       }
     }
