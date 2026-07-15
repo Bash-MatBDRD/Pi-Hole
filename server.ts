@@ -259,7 +259,7 @@ app.post("/api/home-assistant/config", async (req, res) => {
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 2000);
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
 
   // Attempt real Home Assistant connection check
   try {
@@ -292,7 +292,7 @@ async function fetchRealHADevices() {
   if (!haConfig.isConnected || !haConfig.url) return null;
   
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 2000);
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
 
   try {
     const statesUrl = `${haConfig.url.replace(/\/$/, "")}/api/states`;
@@ -468,6 +468,56 @@ app.post("/api/home-assistant/command", async (req, res) => {
   }
 
   res.json({ success: true, isReal: false, device });
+});
+
+// API - HOME ASSISTANT AREAS (resolves area_id → name via template API)
+app.get("/api/home-assistant/areas", async (req, res) => {
+  if (!haConfig.isConnected || !haConfig.url) {
+    return res.json({ Salon: "Salon", Cuisine: "Cuisine", Chambre: "Chambre", Extérieur: "Extérieur" });
+  }
+  try {
+    const tplUrl = `${haConfig.url.replace(/\/$/, "")}/api/template`;
+    const tpl = `{% set ns = namespace(r=[]) %}{% for aid in areas() %}{% set ns.r = ns.r + [aid ~ '|' ~ area_name(aid)] %}{% endfor %}{{ ns.r | join(',') }}`;
+    const r = await fetch(tplUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${haConfig.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ template: tpl }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) return res.json({});
+    const text = await r.text();
+    const map: Record<string, string> = {};
+    text.split(",").forEach(pair => {
+      const [id, name] = pair.trim().split("|");
+      if (id && name) map[id.trim()] = name.trim();
+    });
+    return res.json(map);
+  } catch {
+    return res.json({});
+  }
+});
+
+// API - CAMERA SNAPSHOT PROXY
+app.get("/api/home-assistant/camera-proxy/:entity_id", async (req, res) => {
+  const { entity_id } = req.params;
+  if (!haConfig.isConnected || !haConfig.url) {
+    return res.status(503).json({ error: "HA non connecté" });
+  }
+  try {
+    const proxyUrl = `${haConfig.url.replace(/\/$/, "")}/api/camera_proxy/${entity_id}`;
+    const r = await fetch(proxyUrl, {
+      headers: { Authorization: `Bearer ${haConfig.token}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return res.status(r.status).send("Camera unavailable");
+    const contentType = r.headers.get("content-type") || "image/jpeg";
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "no-store");
+    const buf = await r.arrayBuffer();
+    return res.send(Buffer.from(buf));
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 // API - GEMINI SMART CO-PILOT (AI CONTROL & DISCORD SLASH COMMAND GENERATION)

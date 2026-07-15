@@ -87,6 +87,7 @@ export default function Sidebar({ onLock, onLogout, spotifyTrack }: Props) {
 
       <motion.aside
         ref={ref}
+        initial={{ width: expanded ? 240 : 0, opacity: expanded ? 1 : 0 }}
         animate={{ width: expanded ? 240 : 0, opacity: expanded ? 1 : 0 }}
         transition={{ duration: 0.25, ease: "easeInOut" }}
         className="fixed left-0 top-11 bottom-6 z-40 flex flex-col overflow-hidden shrink-0"
