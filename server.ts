@@ -1,6 +1,8 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
+import { WebSocketServer, WebSocket as WsSocket } from "ws";
+import { Client as SshClient } from "ssh2";
 import dotenv from "dotenv";
 import multer from "multer";
 import { getZimaStats } from "./server/system";
@@ -675,8 +677,69 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const httpServer = app.listen(PORT, "0.0.0.0", () => {
     console.log(`[FULLSTACK SERVER] Running on port ${PORT}`);
+  });
+
+  // ── WebSocket SSH Terminal ─────────────────────────────────────────────────
+  const wss = new WebSocketServer({ server: httpServer, path: "/api/terminal" });
+
+  wss.on("connection", (socket, req) => {
+    const hostId = new URL(req.url!, "http://localhost").searchParams.get("host") ?? "";
+    const host   = getHosts().find(h => h.id === hostId);
+
+    const send = (type: string, extra: Record<string, unknown> = {}) => {
+      if (socket.readyState === WsSocket.OPEN)
+        socket.send(JSON.stringify({ type, ...extra }));
+    };
+
+    if (!host) {
+      send("error", { message: "Hôte introuvable" }); return socket.close();
+    }
+    if (host.isLocal) {
+      send("error", { message: "Hôte local — terminal non supporté" }); return socket.close();
+    }
+    if (!isHostConfigured(host)) {
+      send("error", { message: "SSH non configuré pour cet hôte (vérifiez les Réglages)" }); return socket.close();
+    }
+
+    const ssh = new SshClient();
+
+    ssh.on("ready", () => {
+      send("connected", { host: host.name, ip: host.ip });
+      ssh.shell({ term: "xterm-256color", cols: 80, rows: 24 }, (err, stream) => {
+        if (err) { send("error", { message: err.message }); return socket.close(); }
+
+        // SSH stdout/stderr → WebSocket
+        const fwd = (d: Buffer) => send("data", { data: d.toString("base64") });
+        stream.on("data", fwd);
+        stream.stderr.on("data", fwd);
+        stream.on("close", () => { send("disconnected", {}); socket.close(); });
+
+        // WebSocket input → SSH stdin
+        socket.on("message", (raw) => {
+          try {
+            const msg = JSON.parse(raw.toString());
+            if (msg.type === "input")  stream.write(Buffer.from(msg.data, "base64"));
+            if (msg.type === "resize") stream.setWindow(msg.rows, msg.cols, 0, 0);
+          } catch {}
+        });
+
+        socket.on("close", () => { try { stream.close(); } catch {} ssh.end(); });
+      });
+    });
+
+    ssh.on("error", (e) => {
+      send("error", { message: e.message }); socket.close();
+    });
+
+    ssh.connect({
+      host:         host.ip,
+      port:         (host as any).sshPort ?? 22,
+      username:     host.sshUser!,
+      password:     host.sshPassword!,
+      readyTimeout: 12000,
+    });
   });
 }
 

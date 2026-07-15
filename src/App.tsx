@@ -19,6 +19,7 @@ import Settings   from "./pages/Settings";
 import Meteo      from "./pages/Meteo";
 import Reseau     from "./pages/Reseau";
 import Notes      from "./pages/Notes";
+import Terminal   from "./pages/Terminal";
 
 import { getThemeColor, getLogoStyle, getLetterStyle, getContainerShape, getFontClass } from "./lib/theme";
 
@@ -256,6 +257,7 @@ function AppLayout({ onLock, onLogout, username }: {
               <Route path="/meteo"     element={<Meteo />} />
               <Route path="/reseau"    element={<Reseau />} />
               <Route path="/notes"     element={<Notes />} />
+              <Route path="/terminal"  element={<Terminal />} />
               <Route path="/settings"  element={<Settings />} />
               <Route path="*"          element={<Navigate to="/dashboard" replace />} />
             </Routes>
