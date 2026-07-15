@@ -1,0 +1,10 @@
+{
+  "name": "NEXUS PANEL",
+  "description": "Portail d'administration de Mathieu - Surveillance Domotique & ZimaOS local",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
