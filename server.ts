@@ -13,8 +13,9 @@ import {
 } from "./server/files";
 import * as store from "./server/store";
 import { addHost, removeHost, updateHost } from "./server/store";
-import { startDiscordBot, getBotStats } from "./server/discord";
+import { startDiscordBot, stopDiscordBot, getBotStats } from "./server/discord";
 import { execRemote, isHostConfigured } from "./server/hosts";
+import { spawn } from "child_process";
 
 dotenv.config();
 
@@ -295,7 +296,7 @@ async function fetchRealHADevices() {
     const states = await statesRes.json();
 
     // Fetch registries in parallel with individual timeouts so one failure doesn't block others
-    const [deviceReg, entityReg] = await Promise.all([
+    const [deviceReg, entityReg, areaReg] = await Promise.all([
       fetchRegistryList([
         "/api/config/device_registry/list",
         "/api/config/device_registry",
@@ -304,7 +305,20 @@ async function fetchRealHADevices() {
         "/api/config/entity_registry/list",
         "/api/config/entity_registry",
       ]),
+      fetchRegistryList([
+        "/api/config/area_registry",
+        "/api/config/area_registry/list",
+      ]),
     ]);
+
+    // Build area_id → display name (resolves slugs to readable labels)
+    const areaNameMap: Record<string, string> = {};
+    if (areaReg) {
+      for (const a of areaReg) {
+        if (a.area_id && a.name) areaNameMap[a.area_id] = a.name;
+      }
+    }
+    console.log(`[HA area] ${Object.keys(areaNameMap).length} zones : ${Object.values(areaNameMap).join(", ")}`);
 
     // Build device_id → area_id from device registry
     const deviceAreaMap: Record<string, string> = {};
@@ -344,8 +358,8 @@ async function fetchRealHADevices() {
           name: s.attributes.friendly_name || s.entity_id,
           type: domain,
           state: s.state,
-          // area_id from entity registry takes priority; HA never puts it in state attributes
-          room: entityAreaMap[s.entity_id] || "Général",
+          // area_id → display name; entity's own area overrides device area
+          room: areaNameMap[entityAreaMap[s.entity_id]] || entityAreaMap[s.entity_id] || "Général",
           attributes: {
             // ── Pass through ALL original HA attributes ──────────────────
             ...s.attributes,
@@ -789,6 +803,55 @@ app.put("/api/hosts/:id", (req, res) => {
   }
 });
 
+// ── API - GAMING CONFIG ───────────────────────────────────────────────────────
+app.get("/api/gaming/config", (req, res) => {
+  res.json(store.getGamingConfig());
+});
+app.put("/api/gaming/config", (req, res) => {
+  const { xboxGamertag, psnId, steamId, steamApiKey, epicUsername } = req.body;
+  const patch: any = {};
+  if (xboxGamertag !== undefined) patch.xboxGamertag = String(xboxGamertag).trim();
+  if (psnId        !== undefined) patch.psnId        = String(psnId).trim();
+  if (steamId      !== undefined) patch.steamId      = String(steamId).trim();
+  if (steamApiKey  !== undefined) patch.steamApiKey  = String(steamApiKey).trim();
+  if (epicUsername !== undefined) patch.epicUsername = String(epicUsername).trim();
+  store.setGamingConfig(patch);
+  store.logActivity("settings", "Config Gaming mise à jour");
+  res.json({ success: true, config: store.getGamingConfig() });
+});
+
+app.get("/api/gaming/steam", async (req, res) => {
+  const cfg = store.getGamingConfig();
+  if (!cfg.steamApiKey || !cfg.steamId) return res.json({ configured: false });
+  try {
+    const [sR, gR] = await Promise.allSettled([
+      fetch(`https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=${cfg.steamApiKey}&steamids=${cfg.steamId}`, { signal: AbortSignal.timeout(8000) }),
+      fetch(`https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v0001/?key=${cfg.steamApiKey}&steamid=${cfg.steamId}&count=5&format=json`, { signal: AbortSignal.timeout(8000) }),
+    ]);
+    const player = sR.status === "fulfilled" && sR.value.ok ? ((await sR.value.json()) as any)?.response?.players?.[0] ?? null : null;
+    const recentGames = gR.status === "fulfilled" && gR.value.ok ? ((await gR.value.json()) as any)?.response?.games ?? [] : [];
+    return res.json({ configured: true, player, recentGames });
+  } catch (err: any) {
+    return res.json({ configured: true, error: err.message });
+  }
+});
+
+// ── API - DISCORD RESTART ─────────────────────────────────────────────────────
+app.post("/api/discord/restart", async (req, res) => {
+  const { token } = req.body;
+  if (token !== undefined) {
+    store.setDiscordConfig({ token: String(token).trim() });
+  }
+  try {
+    await stopDiscordBot();
+    await startDiscordBot();
+    store.logActivity("discord", "NexusBot redémarrée via le panel");
+    res.json({ success: true, stats: getBotStats() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Configure Vite integration for Full-stack
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
@@ -825,7 +888,25 @@ async function startServer() {
       send("error", { message: "Hôte introuvable" }); return socket.close();
     }
     if (host.isLocal) {
-      send("error", { message: "Hôte local — terminal non supporté" }); return socket.close();
+      // Spawn a local interactive shell (the panel runs on this machine)
+      const proc = spawn("bash", ["-i", "-l"], {
+        env: { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor" },
+        cwd: process.env.HOME || "/",
+      });
+      send("connected", { host: host.name, ip: host.ip });
+      const fwdLocal = (d: Buffer) => send("data", { data: d.toString("base64") });
+      proc.stdout.on("data", fwdLocal);
+      proc.stderr.on("data", fwdLocal);
+      proc.on("close", () => { send("disconnected", {}); try { socket.close(); } catch {} });
+      proc.on("error", (e: Error) => { send("error", { message: e.message }); socket.close(); });
+      socket.on("message", (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.type === "input") proc.stdin.write(Buffer.from(msg.data, "base64"));
+        } catch {}
+      });
+      socket.on("close", () => { try { proc.kill(); } catch {} });
+      return;
     }
     if (!isHostConfigured(host)) {
       send("error", { message: "SSH non configuré pour cet hôte (vérifiez les Réglages)" }); return socket.close();

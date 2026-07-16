@@ -65,6 +65,14 @@ export interface MeteoConfig {
   timezone: string;
 }
 
+export interface GamingConfig {
+  xboxGamertag: string;
+  psnId: string;
+  steamId: string;
+  steamApiKey: string;
+  epicUsername: string;
+}
+
 interface StoreShape {
   haConfig: { url: string; token: string; isConnected: boolean };
   discordConfig: { token: string; botName: string; prefix: string; status: string };
@@ -75,6 +83,7 @@ interface StoreShape {
   lastCacheCleanup: number;
   notes: Note[];
   meteoConfig: MeteoConfig;
+  gamingConfig: GamingConfig;
 }
 
 const DEFAULT_DEVICES = [
@@ -121,6 +130,7 @@ function defaultStore(): StoreShape {
     discordConfig: { token: "", botName: "NexusBot", prefix: ".", status: "online" },
     notes: [],
     meteoConfig: { latitude: 48.8534, longitude: 2.3488, city: "Paris", timezone: "Europe/Paris" },
+    gamingConfig: { xboxGamertag: "", psnId: "", steamId: "", steamApiKey: "", epicUsername: "" },
     devices: DEFAULT_DEVICES,
     discordLogs: [
       { timestamp: new Date(now - 3600000).toISOString(), user: "Mathieu", command: "/ha status", response: "✅ Home Assistant: Connecté | 9 appareils détectés." },
@@ -196,6 +206,12 @@ export function deleteNote(id: string): boolean {
   s.notes = s.notes.filter(n => n.id !== id);
   if (s.notes.length < before) { persist(); return true; }
   return false;
+}
+
+// ── Gaming config ─────────────────────────────────────────────────────────────
+export function getGamingConfig(): GamingConfig { return load().gamingConfig ?? { xboxGamertag: "", psnId: "", steamId: "", steamApiKey: "", epicUsername: "" }; }
+export function setGamingConfig(next: Partial<GamingConfig>) {
+  const s = load(); s.gamingConfig = { ...getGamingConfig(), ...next }; persist(); return s.gamingConfig;
 }
 
 // ── Météo config ──────────────────────────────────────────────────────────────

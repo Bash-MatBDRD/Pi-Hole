@@ -380,10 +380,12 @@ const COMMANDS: Record<string, CmdFn> = {
   appareils: async () => {
     const devices: any[] = store.getDevices();
     if (devices.length === 0) return "📭 Aucun appareil enregistré. Utilisez `.ajouter` pour en créer un.";
-    const byRoom = devices.reduce((acc: Record<string, any[]>, d) => {
-      (acc[d.room || "Sans pièce"] = acc[d.room || "Sans pièce"] || []).push(d);
+    const byRoom = devices.reduce((acc: Record<string, any[]>, d: any) => {
+      const key = d.room || "Sans pièce";
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(d);
       return acc;
-    }, {});
+    }, {} as Record<string, any[]>);
     const lines: string[] = [`💡 **${devices.length} appareils** — triés par pièce`, ``];
     for (const [room, devs] of Object.entries(byRoom)) {
       lines.push(`**📍 ${room}**`);

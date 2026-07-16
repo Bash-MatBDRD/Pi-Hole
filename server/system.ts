@@ -115,14 +115,30 @@ async function getDisk(host: HostRecord, mountPath: string) {
   return { totalGb: totalB / 1e9, usedGb: usedB / 1e9, usagePct: (usedB / totalB) * 100 };
 }
 
-async function getDiskTempAndHealth(host: HostRecord): Promise<{ temp: MetricResult<number>; health: MetricResult<string> }> {
-  // Run both smartctl queries in a single SSH session to avoid opening two connections.
-  // smartctl needs root; if the ZimaOS sudoers allow passwordless smartctl this works,
-  // otherwise we report both metrics as unavailable.
+async function detectDisk(host: HostRecord): Promise<string> {
   try {
     const out = await run(
       host,
-      "smartctl -A /dev/sda 2>/dev/null | grep -i Temperature_Celsius; echo '---'; smartctl -H /dev/sda 2>/dev/null | grep -i 'overall-health'"
+      "lsblk -d -o NAME,TYPE 2>/dev/null | awk '$2==\"disk\"{print \"/dev/\"$1; exit}'"
+    );
+    const d = out.trim();
+    if (d.startsWith("/dev/")) return d;
+  } catch {}
+  try {
+    const out = await run(host, "ls /dev/sda /dev/nvme0n1 /dev/vda /dev/hda 2>/dev/null | head -1");
+    const d = out.trim().split("\n")[0];
+    if (d.startsWith("/dev/")) return d;
+  } catch {}
+  return "/dev/sda";
+}
+
+async function getDiskTempAndHealth(host: HostRecord): Promise<{ temp: MetricResult<number>; health: MetricResult<string> }> {
+  // Detect disk device then run both smartctl queries in a single SSH session.
+  try {
+    const disk = await detectDisk(host);
+    const out = await run(
+      host,
+      `smartctl -A ${disk} 2>/dev/null | grep -i Temperature_Celsius; echo '---'; smartctl -H ${disk} 2>/dev/null | grep -i 'overall-health'`
     );
     const parts = out.split("---");
     const tempLine = (parts[0] || "").trim();
