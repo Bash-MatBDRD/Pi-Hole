@@ -387,7 +387,7 @@ const COMMANDS: Record<string, CmdFn> = {
       return acc;
     }, {} as Record<string, any[]>);
     const lines: string[] = [`💡 **${devices.length} appareils** — triés par pièce`, ``];
-    for (const [room, devs] of Object.entries(byRoom)) {
+    for (const [room, devs] of Object.entries(byRoom) as [string, any[]][]) {
       lines.push(`**📍 ${room}**`);
       for (const d of devs) lines.push(`  ${stateEmoji(d)} ${typeEmoji(d.type)} **${d.name}** — ${stateLabel(d)}`);
       lines.push(``);
