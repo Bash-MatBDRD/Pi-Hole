@@ -61,6 +61,7 @@ const VARIANTS: Record<string, VariantDef> = {
 };
 
 export const BOOT_ANIMATION_NAMES = Object.keys(VARIANTS);
+export const BOOT_VARIANTS = VARIANTS;
 
 function useCountUp(target: number, onDone: () => void, speedMs: number) {
   const [progress, setProgress] = useState(0);

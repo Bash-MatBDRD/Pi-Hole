@@ -49,11 +49,21 @@ async function withSftp<T>(host: HostRecord, fn: (sftp: SftpClient) => Promise<T
   }
 }
 
+async function resolveLocalRoot(configured: string): Promise<string> {
+  const candidates = [configured, process.env.HOME || "", "/home/runner", process.cwd(), "/tmp"];
+  for (const c of candidates) {
+    if (!c) continue;
+    try { await fsp.access(c, fs.constants.R_OK); return c; } catch {}
+  }
+  return configured;
+}
+
 export async function listDir(hostId: string, relPath: string): Promise<{ entries: FileEntry[]; root: string }> {
   const host = requireHost(hostId);
   const root = host.filesRoot || "/DATA";
   if (host.isLocal) {
-    const abs = resolveLocalPath(root, relPath);
+    const effectiveRoot = await resolveLocalRoot(root);
+    const abs = resolveLocalPath(effectiveRoot, relPath);
     const entries = await fsp.readdir(abs, { withFileTypes: true });
     const results: FileEntry[] = [];
     for (const entry of entries) {
@@ -67,7 +77,7 @@ export async function listDir(hostId: string, relPath: string): Promise<{ entrie
         modifiedAt: stat?.mtime?.toISOString() ?? null,
       });
     }
-    return { entries: results, root };
+    return { entries: results, root: effectiveRoot };
   }
 
   const entries = await withSftp(host, async (sftp) => {
@@ -90,7 +100,8 @@ export async function streamDownload(hostId: string, relPath: string, res: Respo
   res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
   res.setHeader("Content-Type", "application/octet-stream");
   if (host.isLocal) {
-    const abs = resolveLocalPath(root, relPath);
+    const effectiveRoot = await resolveLocalRoot(root);
+    const abs = resolveLocalPath(effectiveRoot, relPath);
     await fsp.access(abs, fs.constants.R_OK);
     fs.createReadStream(abs).pipe(res);
     return;
@@ -105,7 +116,8 @@ export async function uploadFile(hostId: string, relDirPath: string, filename: s
   const host = requireHost(hostId);
   const root = host.filesRoot || "/DATA";
   if (host.isLocal) {
-    const abs = resolveLocalPath(root, path.posix.join(relDirPath.replace(/^\/+/, ""), filename));
+    const effectiveRoot = await resolveLocalRoot(root);
+    const abs = resolveLocalPath(effectiveRoot, path.posix.join(relDirPath.replace(/^\/+/, ""), filename));
     await fsp.mkdir(path.dirname(abs), { recursive: true });
     await fsp.copyFile(tmpFilePath, abs);
     await fsp.unlink(tmpFilePath).catch(() => {});
@@ -123,7 +135,8 @@ export async function deleteEntry(hostId: string, relPath: string, isDirectory: 
   const host = requireHost(hostId);
   const root = host.filesRoot || "/DATA";
   if (host.isLocal) {
-    const abs = resolveLocalPath(root, relPath);
+    const effectiveRoot = await resolveLocalRoot(root);
+    const abs = resolveLocalPath(effectiveRoot, relPath);
     if (isDirectory) await fsp.rm(abs, { recursive: true, force: true });
     else await fsp.unlink(abs);
     return;

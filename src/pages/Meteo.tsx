@@ -4,24 +4,23 @@ import axios from "axios";
 
 // ── WMO weather codes → FR ────────────────────────────────────────────────────
 function wx(code: number): { emoji: string; label: string } {
-  if (code === 0)                     return { emoji: "☀️",  label: "Ciel dégagé" };
-  if (code === 1)                     return { emoji: "🌤️",  label: "Peu nuageux" };
-  if (code === 2)                     return { emoji: "⛅",  label: "Partiellement nuageux" };
-  if (code === 3)                     return { emoji: "☁️",  label: "Couvert" };
-  if (code === 45 || code === 48)     return { emoji: "🌫️",  label: "Brouillard" };
-  if (code >= 51 && code <= 55)       return { emoji: "🌦️",  label: "Bruine" };
-  if (code >= 56 && code <= 57)       return { emoji: "🌧️",  label: "Bruine verglaçante" };
-  if (code >= 61 && code <= 63)       return { emoji: "🌧️",  label: "Pluie" };
-  if (code === 65)                    return { emoji: "🌧️",  label: "Pluie forte" };
-  if (code >= 66 && code <= 67)       return { emoji: "🌧️",  label: "Pluie verglaçante" };
-  if (code >= 71 && code <= 73)       return { emoji: "❄️",  label: "Neige" };
-  if (code === 75)                    return { emoji: "❄️",  label: "Neige forte" };
-  if (code === 77)                    return { emoji: "🌨️",  label: "Grésil" };
-  if (code >= 80 && code <= 81)       return { emoji: "🌦️",  label: "Averses" };
-  if (code === 82)                    return { emoji: "🌦️",  label: "Averses violentes" };
-  if (code >= 85 && code <= 86)       return { emoji: "🌨️",  label: "Averses de neige" };
-  if (code === 95)                    return { emoji: "⛈️",  label: "Orage" };
-  if (code >= 96 && code <= 99)       return { emoji: "⛈️",  label: "Orage avec grêle" };
+  if (code === 0)                 return { emoji: "☀️",  label: "Ciel dégagé" };
+  if (code === 1)                 return { emoji: "🌤️",  label: "Peu nuageux" };
+  if (code === 2)                 return { emoji: "⛅",  label: "Partiellement nuageux" };
+  if (code === 3)                 return { emoji: "☁️",  label: "Couvert" };
+  if (code === 45 || code === 48) return { emoji: "🌫️",  label: "Brouillard" };
+  if (code >= 51 && code <= 55)  return { emoji: "🌦️",  label: "Bruine" };
+  if (code >= 56 && code <= 57)  return { emoji: "🌧️",  label: "Bruine verglaçante" };
+  if (code >= 61 && code <= 63)  return { emoji: "🌧️",  label: "Pluie" };
+  if (code === 65)               return { emoji: "🌧️",  label: "Pluie forte" };
+  if (code >= 66 && code <= 67)  return { emoji: "🌧️",  label: "Pluie verglaçante" };
+  if (code >= 71 && code <= 73)  return { emoji: "❄️",  label: "Neige" };
+  if (code === 75)               return { emoji: "❄️",  label: "Neige forte" };
+  if (code === 77)               return { emoji: "🌨️",  label: "Grésil" };
+  if (code >= 80 && code <= 82)  return { emoji: "🌦️",  label: "Averses" };
+  if (code >= 85 && code <= 86)  return { emoji: "🌨️",  label: "Averses de neige" };
+  if (code === 95)               return { emoji: "⛈️",  label: "Orage" };
+  if (code >= 96 && code <= 99)  return { emoji: "⛈️",  label: "Orage avec grêle" };
   return { emoji: "🌡️", label: "Inconnu" };
 }
 
@@ -37,22 +36,19 @@ function dayFR(dateStr: string): string {
 
 interface WeatherData {
   city: string;
-  current: {
-    temp: number; feelsLike: number; humidity: number;
-    windSpeed: number; code: number; precip: number;
-  };
+  current: { temp: number; feelsLike: number; humidity: number; windSpeed: number; code: number; precip: number };
   hourly: { time: string; temp: number; code: number }[];
   daily: { date: string; code: number; max: number; min: number; precip: number }[];
 }
 
 export default function Meteo() {
-  const [data,     setData]     = useState<WeatherData | null>(null);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState("");
-  const [search,   setSearch]   = useState("");
-  const [results,  setResults]  = useState<{ name: string; country: string; lat: number; lng: number; tz: string }[]>([]);
+  const [data,    setData]    = useState<WeatherData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState("");
+  const [search,  setSearch]  = useState("");
+  const [results, setResults] = useState<{ name: string; country: string; lat: number; lng: number; tz: string }[]>([]);
   const [searching, setSearching] = useState(false);
-  const [showRes,  setShowRes]  = useState(false);
+  const [showRes, setShowRes] = useState(false);
   const searchRef = useRef<NodeJS.Timeout | null>(null);
   const hourRef   = useRef<HTMLDivElement>(null);
 
@@ -68,13 +64,9 @@ export default function Meteo() {
 
   useEffect(() => { fetchWeather(); }, []);
 
-  // Scroll hourly to current hour
+  // Scroll hourly to first entry
   useEffect(() => {
-    if (data && hourRef.current) {
-      const currentHour = new Date().getHours();
-      const idx = data.hourly.findIndex(h => new Date(h.time).getHours() === currentHour);
-      if (idx > 0) hourRef.current.scrollLeft = idx * 72;
-    }
+    if (data && hourRef.current) hourRef.current.scrollLeft = 0;
   }, [data]);
 
   const handleSearch = (val: string) => {
@@ -104,8 +96,7 @@ export default function Meteo() {
   const weather = cur ? wx(cur.code) : null;
 
   return (
-    <div className="p-5 space-y-5 max-w-4xl mx-auto">
-
+    <div className="p-5 space-y-5 max-w-4xl mx-auto" onClick={() => setShowRes(false)}>
       {/* Header + Search */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -115,17 +106,13 @@ export default function Meteo() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Search */}
-          <div className="relative">
+          <div className="relative" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
               style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
               <Search className="h-3.5 w-3.5 text-gray-500" />
-              <input
-                value={search}
-                onChange={e => handleSearch(e.target.value)}
+              <input value={search} onChange={e => handleSearch(e.target.value)}
                 placeholder="Changer de ville…"
-                className="bg-transparent text-xs text-white placeholder:text-gray-600 focus:outline-none w-36"
-              />
+                className="bg-transparent text-xs text-white placeholder:text-gray-600 focus:outline-none w-36" />
               {searching && <RefreshCw className="h-3 w-3 text-gray-600 animate-spin" />}
             </div>
             {showRes && results.length > 0 && (
@@ -152,7 +139,6 @@ export default function Meteo() {
           <RefreshCw className="h-5 w-5 animate-spin" />Chargement de la météo…
         </div>
       )}
-
       {error && !loading && (
         <div className="rounded-2xl p-5 text-center text-sm text-red-400"
           style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)" }}>
@@ -178,8 +164,8 @@ export default function Meteo() {
             <div className="grid grid-cols-3 gap-3 mt-5 pt-5 border-t relative z-10"
               style={{ borderColor: "rgba(99,102,241,0.15)" }}>
               {[
-                { icon: Droplets,    label: "Humidité",    val: `${cur!.humidity}%` },
-                { icon: Wind,        label: "Vent",        val: `${Math.round(cur!.windSpeed)} km/h` },
+                { icon: Droplets,    label: "Humidité",       val: `${cur!.humidity}%` },
+                { icon: Wind,        label: "Vent",           val: `${Math.round(cur!.windSpeed)} km/h` },
                 { icon: Thermometer, label: "Précipitations", val: `${cur!.precip} mm` },
               ].map(({ icon: Icon, label, val }) => (
                 <div key={label} className="flex items-center gap-2">
@@ -201,22 +187,24 @@ export default function Meteo() {
               <Cloud className="h-4 w-4 text-indigo-400" />
               <span className="text-xs font-bold text-white">Prévisions heure par heure</span>
             </div>
-            <div ref={hourRef} className="flex gap-1 overflow-x-auto custom-scrollbar px-3 py-3"
+            <div ref={hourRef} className="flex gap-1 overflow-x-auto px-3 py-3"
               style={{ scrollbarWidth: "thin" }}>
               {data.hourly.map((h, i) => {
-                const hDate = new Date(h.time);
-                const isNow = Math.abs(hDate.getTime() - Date.now()) < 1800000;
+                // Parse time string directly as "YYYY-MM-DDTHH:MM" — no timezone conversion
+                const hour = parseInt(h.time.slice(11, 13), 10);
+                const isFirst = i === 0;
                 return (
-                  <div key={i} className="flex flex-col items-center gap-1.5 px-3 py-2.5 rounded-xl shrink-0 w-[68px] transition-all"
+                  <div key={i}
+                    className="flex flex-col items-center gap-1.5 px-3 py-2.5 rounded-xl shrink-0 w-[68px] transition-all"
                     style={{
-                      background: isNow ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.02)",
-                      border: isNow ? "1px solid rgba(99,102,241,0.25)" : "1px solid rgba(255,255,255,0.04)",
+                      background: isFirst ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.02)",
+                      border: isFirst ? "1px solid rgba(99,102,241,0.25)" : "1px solid rgba(255,255,255,0.04)",
                     }}>
                     <span className="text-[9px] text-gray-500 font-mono">
-                      {hDate.getHours().toString().padStart(2, "0")}h
+                      {String(hour).padStart(2, "0")}h
                     </span>
                     <span className="text-base">{wx(h.code).emoji}</span>
-                    <span className={`text-xs font-bold ${isNow ? "text-indigo-300" : "text-white"}`}>
+                    <span className={`text-xs font-bold ${isFirst ? "text-indigo-300" : "text-white"}`}>
                       {Math.round(h.temp)}°
                     </span>
                   </div>

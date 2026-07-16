@@ -59,7 +59,8 @@ export default function TerminalPage() {
   // ── Load available hosts ───────────────────────────────────────────────────
   useEffect(() => {
     axios.get("/api/hosts").then(({ data }) => {
-      const viable: Host[] = (data.hosts || []).filter((h: Host) => !h.isLocal && h.sshConfigured);
+      // Show all non-local hosts — SSH errors are handled gracefully when connecting
+      const viable: Host[] = (data.hosts || []).filter((h: Host) => !h.isLocal);
       setHosts(viable);
       if (viable.length > 0) setSelectedId(viable[0].id);
     }).catch(() => {});

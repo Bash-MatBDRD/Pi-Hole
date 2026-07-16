@@ -12,7 +12,7 @@ import {
   createShareLink, resolveShare,
 } from "./server/files";
 import * as store from "./server/store";
-import { addHost, removeHost } from "./server/store";
+import { addHost, removeHost, updateHost } from "./server/store";
 import { startDiscordBot, getBotStats } from "./server/discord";
 import { execRemote, isHostConfigured } from "./server/hosts";
 
@@ -629,7 +629,7 @@ app.get("/api/reseau", async (req, res) => {
   const hosts = getHosts();
 
   const [internet, discordApi, haCheck] = await Promise.all([
-    checkUrl("Internet (Cloudflare)", "https://1.1.1.1"),
+    checkUrl("Internet", "https://www.google.com"),
     checkUrl("Discord API", "https://discord.com/api/v10/gateway"),
     haConfig.url
       ? checkUrl("Home Assistant", `${haConfig.url.replace(/\/$/, "")}/api/`,
@@ -659,6 +659,57 @@ app.get("/api/reseau", async (req, res) => {
     hosts: hostsStatus,
     checkedAt: new Date().toISOString(),
   });
+});
+
+// ── API - DISCORD CONFIG ──────────────────────────────────────────────────────
+app.get("/api/discord/config", (req, res) => {
+  const cfg = store.getDiscordConfig();
+  res.json({ prefix: cfg.prefix, status: cfg.status, botName: cfg.botName });
+});
+app.put("/api/discord/config", (req, res) => {
+  const { prefix, status, botName } = req.body;
+  const patch: any = {};
+  if (prefix  !== undefined) patch.prefix  = String(prefix).slice(0, 5);
+  if (status  !== undefined) patch.status  = String(status);
+  if (botName !== undefined) patch.botName = String(botName).trim();
+  const cfg = store.setDiscordConfig(patch);
+  store.logActivity("settings", "Config Discord mise à jour");
+  res.json(cfg);
+});
+
+// ── API - HA CONFIG ───────────────────────────────────────────────────────────
+app.put("/api/home-assistant/config", async (req, res) => {
+  const { url, token } = req.body;
+  const patch: any = {};
+  if (url   !== undefined) patch.url   = String(url).trim().replace(/\/$/, "");
+  if (token !== undefined) patch.token = String(token).trim();
+  const cfg = store.setHaConfig(patch);
+  store.logActivity("settings", "Config Home Assistant mise à jour");
+  res.json({ url: cfg.url, hasToken: !!cfg.token });
+});
+app.post("/api/home-assistant/test", async (req, res) => {
+  const cfg = store.getHaConfig();
+  if (!cfg.url) return res.status(400).json({ ok: false, error: "URL non configurée" });
+  try {
+    const r = await fetch(`${cfg.url}/api/`, {
+      headers: cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {},
+      signal: AbortSignal.timeout(6000),
+    });
+    res.json({ ok: r.ok, status: r.status });
+  } catch (err: any) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// ── API - HOSTS UPDATE ────────────────────────────────────────────────────────
+app.put("/api/hosts/:id", (req, res) => {
+  try {
+    const host = updateHost(req.params.id, req.body);
+    store.logActivity("settings", `Hôte mis à jour : ${host.name}`);
+    res.json(safeHostPublic(host));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Configure Vite integration for Full-stack

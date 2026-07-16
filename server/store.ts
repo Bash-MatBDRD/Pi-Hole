@@ -251,6 +251,19 @@ export function addHost(input: { name: string; ip: string; sshUser: string; sshP
   persist();
   return record;
 }
+export function updateHost(id: string, patch: Partial<Pick<HostRecord, "name" | "ip" | "sshUser" | "sshPassword" | "filesRoot">>) {
+  const s = load();
+  const host = s.hosts.find((h) => h.id === id);
+  if (!host) throw new Error("Hôte introuvable");
+  if (patch.name !== undefined)      host.name      = patch.name.trim();
+  if (patch.ip !== undefined)        host.ip        = patch.ip.trim();
+  if (patch.sshUser !== undefined)   host.sshUser   = patch.sshUser.trim();
+  if (patch.sshPassword !== undefined) host.sshPassword = patch.sshPassword;
+  if (patch.filesRoot !== undefined) host.filesRoot = patch.filesRoot.trim() || "/DATA";
+  persist();
+  return host;
+}
+
 export function removeHost(id: string) {
   const s = load();
   if (id === "local") throw new Error("Le système local ne peut pas être supprimé");
