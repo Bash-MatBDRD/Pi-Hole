@@ -24,6 +24,7 @@ function formatTime(s: number) {
 
 export default function Spotify() {
   const [devices,     setDevices]     = useState<Device[]>([]);
+  const [areaNames,   setAreaNames]   = useState<Record<string, string>>({});
   const [activeApp,   setActiveApp]   = useState("Home");
   const [firestickOn, setFirestickOn] = useState(true);
   const [loading,     setLoading]     = useState(true);
@@ -31,12 +32,14 @@ export default function Spotify() {
 
   const fetchDevices = async () => {
     try {
-      const [devRes, cfgRes] = await Promise.all([
+      const [devRes, cfgRes, areaRes] = await Promise.all([
         axios.get("/api/home-assistant/devices"),
         axios.get("/api/home-assistant/config"),
+        axios.get("/api/home-assistant/areas").catch(() => ({ data: {} })),
       ]);
       setDevices(devRes.data || []);
       setHaConnected(cfgRes.data?.isConnected || false);
+      if (areaRes.data && typeof areaRes.data === "object") setAreaNames(areaRes.data);
     } catch {} finally { setLoading(false); }
   };
 
@@ -191,7 +194,7 @@ export default function Spotify() {
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg ${mp.id === activePlayer?.id ? "bg-purple-500/10 border border-purple-500/15" : "bg-white/2 border border-transparent"}`}>
                   <div className={`h-1.5 w-1.5 rounded-full ${mp.state === "playing" ? "bg-purple-400 animate-pulse" : "bg-gray-700"}`} />
                   <p className="text-[10px] text-white flex-1 truncate">{mp.name}</p>
-                  <span className="text-[9px] text-gray-600">{mp.room}</span>
+                  <span className="text-[9px] text-gray-600">{areaNames[mp.room] || mp.room || "Général"}</span>
                 </div>
               ))}
             </div>

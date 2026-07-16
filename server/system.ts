@@ -115,40 +115,65 @@ async function getDisk(host: HostRecord, mountPath: string) {
   return { totalGb: totalB / 1e9, usedGb: usedB / 1e9, usagePct: (usedB / totalB) * 100 };
 }
 
-async function getDiskTemp(host: HostRecord): Promise<number> {
+async function getDiskTempAndHealth(host: HostRecord): Promise<{ temp: MetricResult<number>; health: MetricResult<string> }> {
+  // Run both smartctl queries in a single SSH session to avoid opening two connections.
   // smartctl needs root; if the ZimaOS sudoers allow passwordless smartctl this works,
-  // otherwise we report the metric as unavailable rather than invent a number.
-  const out = await run(host, "smartctl -A /dev/sda 2>/dev/null | grep -i Temperature_Celsius");
-  const cols = out.trim().split(/\s+/);
-  const temp = Number(cols[9]);
-  if (!Number.isFinite(temp)) throw new Error("smartctl indisponible (droits root requis)");
-  return temp;
-}
-
-async function getDiskHealth(host: HostRecord): Promise<string> {
-  const out = await run(host, "smartctl -H /dev/sda 2>/dev/null | grep -i 'overall-health'");
-  if (!out.trim()) throw new Error("smartctl indisponible (droits root requis)");
-  return out.toLowerCase().includes("passed") ? "Bon état" : "Attention";
-}
-
-async function getGpu(host: HostRecord) {
-  // 1. Dedicated NVIDIA GPU, if present.
+  // otherwise we report both metrics as unavailable.
   try {
     const out = await run(
       host,
-      "nvidia-smi --query-gpu=utilization.gpu,clocks.gr,clocks.max.gr --format=csv,noheader,nounits 2>/dev/null"
+      "smartctl -A /dev/sda 2>/dev/null | grep -i Temperature_Celsius; echo '---'; smartctl -H /dev/sda 2>/dev/null | grep -i 'overall-health'"
     );
-    const [usage, freq, maxFreq] = out.trim().split(",").map((s) => Number(s.trim()));
+    const parts = out.split("---");
+    const tempLine = (parts[0] || "").trim();
+    const healthLine = (parts[1] || "").trim();
+
+    const tempCols = tempLine.split(/\s+/);
+    const tempVal = Number(tempCols[9]);
+    const temp: MetricResult<number> = Number.isFinite(tempVal)
+      ? { available: true, data: tempVal }
+      : { available: false, reason: "smartctl indisponible (droits root requis)" };
+
+    const health: MetricResult<string> = healthLine
+      ? { available: true, data: healthLine.toLowerCase().includes("passed") ? "Bon état" : "Attention" }
+      : { available: false, reason: "smartctl indisponible (droits root requis)" };
+
+    return { temp, health };
+  } catch (err: any) {
+    const reason = err?.message || "smartctl indisponible";
+    return {
+      temp: { available: false, reason },
+      health: { available: false, reason },
+    };
+  }
+}
+
+async function getGpu(host: HostRecord) {
+  // Run all GPU probes in a single SSH command to avoid multiple connections.
+  // Output format: "NVIDIA:<usage>,<freq>,<maxFreq>" or "INTEL:<cur>,<max>"
+  const cmd = [
+    // 1. Try NVIDIA
+    "nvidia-smi --query-gpu=utilization.gpu,clocks.gr,clocks.max.gr --format=csv,noheader,nounits 2>/dev/null",
+    "echo '---INTEL---'",
+    // 2. Try Intel iGPU sysfs
+    "echo \"$(cat /sys/class/drm/card0/gt_cur_freq_mhz 2>/dev/null),$(cat /sys/class/drm/card0/gt_max_freq_mhz 2>/dev/null)\"",
+  ].join("; ");
+
+  const out = await run(host, cmd);
+  const parts = out.split("---INTEL---");
+
+  // Try NVIDIA first
+  const nvidiaPart = (parts[0] || "").trim();
+  if (nvidiaPart) {
+    const [usage, freq, maxFreq] = nvidiaPart.split(",").map((s) => Number(s.trim()));
     if (Number.isFinite(usage)) return { usagePct: usage, freqMhz: freq, maxFreqMhz: maxFreq };
-  } catch {
-    /* fall through to Intel iGPU */
   }
 
-  // 2. Intel integrated GPU (N5105 / J4125 use the i915 driver) via sysfs frequency.
-  const cur = await run(host, "cat /sys/class/drm/card0/gt_cur_freq_mhz 2>/dev/null");
-  const max = await run(host, "cat /sys/class/drm/card0/gt_max_freq_mhz 2>/dev/null");
-  const curMhz = parseInt(cur.trim(), 10);
-  const maxMhz = parseInt(max.trim(), 10);
+  // Try Intel iGPU
+  const intelPart = (parts[1] || "").trim();
+  const [curStr, maxStr] = intelPart.split(",");
+  const curMhz = parseInt((curStr || "").trim(), 10);
+  const maxMhz = parseInt((maxStr || "").trim(), 10);
   if (!Number.isFinite(curMhz) || !Number.isFinite(maxMhz) || maxMhz <= 0) {
     throw new Error("Aucun GPU dédié détecté et sysfs Intel iGPU introuvable");
   }
@@ -183,16 +208,17 @@ export async function getZimaStats(host: HostRecord): Promise<ZimaStats> {
     };
   }
 
-  const [osName, cpuUsageR, cpuTempR, ramR, uptimeR, diskR, diskTempR, diskHealthR, gpuR] = await Promise.all([
+  // Run independent metrics in parallel, but group commands that share an SSH session
+  // to reduce total number of simultaneous connections (ZimaOS limits concurrent SSH sessions).
+  const [osName, cpuUsageR, cpuTempR, ramR, uptimeR, diskR, diskSmartR, gpuR] = await Promise.all([
     getOsName(host),
     safe(() => getCpuUsage(host)),
     safe(() => getCpuTemp(host)),
     safe(() => getRam(host)),
     safe(() => getUptime(host)),
     safe(() => getDisk(host, diskPath)),
-    safe(() => getDiskTemp(host)),
-    safe(() => getDiskHealth(host)),
-    safe(() => getGpu(host)),
+    getDiskTempAndHealth(host),   // single SSH session for both smartctl queries
+    safe(() => getGpu(host)),     // single SSH session for all GPU probes
   ]);
 
   const reachable = cpuUsageR.available || ramR.available || uptimeR.available;
@@ -212,8 +238,8 @@ export async function getZimaStats(host: HostRecord): Promise<ZimaStats> {
       totalGb: diskR.data?.totalGb ?? null,
       usedGb: diskR.data?.usedGb ?? null,
       usagePct: diskR.data?.usagePct ?? null,
-      temperature: diskTempR.available ? { available: true, data: diskTempR.data } : { available: false, reason: diskTempR.reason },
-      health: diskHealthR.available ? { available: true, data: diskHealthR.data } : { available: false, reason: diskHealthR.reason },
+      temperature: diskSmartR.temp,
+      health: diskSmartR.health,
     },
     gpu: gpuR.available ? { available: true, data: gpuR.data } : { available: false, reason: gpuR.reason },
   };

@@ -252,14 +252,39 @@ async function fetchRealHADevices() {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+  // Helper: try fetching a HA registry endpoint with fallback paths.
+  // Returns parsed array or null on failure.
+  async function fetchRegistryList(paths: string[]): Promise<any[] | null> {
+    for (const p of paths) {
+      try {
+        const r = await fetch(`${base}${p}`, {
+          headers,
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) {
+          console.warn(`[HA registry] ${p} → HTTP ${r.status}`);
+          continue;
+        }
+        const data = await r.json();
+        // Some HA versions wrap the array: { devices: [...] } or { entities: [...] }
+        const arr = Array.isArray(data)
+          ? data
+          : (data?.devices ?? data?.entities ?? data?.areas ?? data?.result ?? null);
+        if (Array.isArray(arr)) {
+          console.log(`[HA registry] ${p} → ${arr.length} entrées`);
+          return arr;
+        }
+        console.warn(`[HA registry] ${p} → réponse inattendue :`, JSON.stringify(data).slice(0, 120));
+      } catch (e: any) {
+        console.warn(`[HA registry] ${p} → erreur : ${e.message}`);
+      }
+    }
+    return null;
+  }
+
   try {
-    // Fetch states + entity registry + device registry in parallel
-    // Area can be set at entity level OR device level — we check both.
-    const [statesRes, entityRegRes, deviceRegRes] = await Promise.all([
-      fetch(`${base}/api/states`,                          { signal: controller.signal, headers }),
-      fetch(`${base}/api/config/entity_registry/list`,    { signal: controller.signal, headers }),
-      fetch(`${base}/api/config/device_registry/list`,    { signal: controller.signal, headers }),
-    ]);
+    // Fetch states first (mandatory), then registries in parallel
+    const statesRes = await fetch(`${base}/api/states`, { signal: controller.signal, headers });
     clearTimeout(timeoutId);
 
     if (!statesRes.ok) {
@@ -269,10 +294,21 @@ async function fetchRealHADevices() {
 
     const states = await statesRes.json();
 
+    // Fetch registries in parallel with individual timeouts so one failure doesn't block others
+    const [deviceReg, entityReg] = await Promise.all([
+      fetchRegistryList([
+        "/api/config/device_registry/list",
+        "/api/config/device_registry",
+      ]),
+      fetchRegistryList([
+        "/api/config/entity_registry/list",
+        "/api/config/entity_registry",
+      ]),
+    ]);
+
     // Build device_id → area_id from device registry
     const deviceAreaMap: Record<string, string> = {};
-    if (deviceRegRes.ok) {
-      const deviceReg: any[] = await deviceRegRes.json();
+    if (deviceReg) {
       for (const entry of deviceReg) {
         if (entry.id && entry.area_id) {
           deviceAreaMap[entry.id] = entry.area_id;
@@ -284,8 +320,7 @@ async function fetchRealHADevices() {
     //   1. Use entity's own area_id if set
     //   2. Otherwise fall back to the entity's device area_id
     const entityAreaMap: Record<string, string> = {};
-    if (entityRegRes.ok) {
-      const entityReg: any[] = await entityRegRes.json();
+    if (entityReg) {
       for (const entry of entityReg) {
         if (!entry.entity_id) continue;
         const areaId = entry.area_id || (entry.device_id ? deviceAreaMap[entry.device_id] : null);
@@ -294,6 +329,7 @@ async function fetchRealHADevices() {
         }
       }
     }
+    console.log(`[HA area] ${Object.keys(entityAreaMap).length} entités avec une zone sur ${states.length} états`);
 
     const ALLOWED_DOMAINS = ["light", "switch", "cover", "climate", "media_player", "camera"];
 
@@ -466,13 +502,22 @@ app.get("/api/home-assistant/areas", async (req, res) => {
   if (!haConfig.isConnected || !haConfig.url) {
     return res.json({});
   }
+  const base = haConfig.url.replace(/\/$/, "");
+  const headers = { Authorization: `Bearer ${haConfig.token}`, "Content-Type": "application/json" };
   try {
-    const r = await fetch(`${haConfig.url.replace(/\/$/, "")}/api/config/area_registry/list`, {
-      headers: { Authorization: `Bearer ${haConfig.token}`, "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!r.ok) return res.json({});
-    const areas: any[] = await r.json();
+    // Try both the REST path (no /list suffix) and the legacy path
+    let areas: any[] | null = null;
+    for (const path of ["/api/config/area_registry", "/api/config/area_registry/list"]) {
+      try {
+        const r = await fetch(`${base}${path}`, { headers, signal: AbortSignal.timeout(5000) });
+        if (r.ok) {
+          const data = await r.json();
+          areas = Array.isArray(data) ? data : (data?.areas ?? data?.result ?? []);
+          if (areas.length > 0) break;
+        }
+      } catch { /* try next */ }
+    }
+    if (!areas) return res.json({});
     // Build { area_id: "Salon", ... }
     const map: Record<string, string> = {};
     for (const a of areas) {
@@ -482,6 +527,38 @@ app.get("/api/home-assistant/areas", async (req, res) => {
   } catch {
     return res.json({});
   }
+});
+
+// API - DEBUG HA REGISTRIES (temporary diagnostic endpoint)
+app.get("/api/home-assistant/debug-registries", async (req, res) => {
+  const haConfig = store.getHaConfig();
+  if (!haConfig.isConnected || !haConfig.url) {
+    return res.json({ error: "HA non connecté" });
+  }
+  const base = haConfig.url.replace(/\/$/, "");
+  const headers = { Authorization: `Bearer ${haConfig.token}`, "Content-Type": "application/json" };
+  const results: Record<string, any> = {};
+
+  const endpoints = [
+    "/api/config/area_registry",
+    "/api/config/area_registry/list",
+    "/api/config/entity_registry/list",
+    "/api/config/device_registry/list",
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const r = await fetch(`${base}${ep}`, { headers, signal: AbortSignal.timeout(8000) });
+      const text = await r.text();
+      let parsed: any;
+      try { parsed = JSON.parse(text); } catch { parsed = text.slice(0, 200); }
+      const sample = Array.isArray(parsed) ? parsed.slice(0, 2) : parsed;
+      results[ep] = { status: r.status, ok: r.ok, count: Array.isArray(parsed) ? parsed.length : null, sample };
+    } catch (err: any) {
+      results[ep] = { error: err.message };
+    }
+  }
+  return res.json(results);
 });
 
 // API - CAMERA SNAPSHOT PROXY
