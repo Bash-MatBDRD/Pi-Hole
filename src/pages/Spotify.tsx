@@ -3,7 +3,7 @@ import {
   Music, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
   RefreshCw, Tv, Power, Home as HomeIcon, AlertCircle, Wifi, WifiOff,
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown,
-  Mic, ArrowLeft, Search, Radio,
+  Mic, ArrowLeft, Search, Radio, Shuffle, Repeat, Repeat1, Heart,
 } from "lucide-react";
 import axios from "axios";
 
@@ -23,6 +23,14 @@ const FIRESTICK_APPS = [
   { name: "Plex",        color: "#e5a00d", icon: "Px" },
 ];
 
+function getLikedTracks(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem("nexus-liked-tracks") || "[]")); }
+  catch { return new Set(); }
+}
+function saveLikedTracks(s: Set<string>) {
+  localStorage.setItem("nexus-liked-tracks", JSON.stringify([...s]));
+}
+
 export default function Spotify() {
   const [devices,     setDevices]     = useState<Device[]>([]);
   const [areaNames,   setAreaNames]   = useState<Record<string, string>>({});
@@ -30,6 +38,7 @@ export default function Spotify() {
   const [firestickOn, setFirestickOn] = useState(true);
   const [loading,     setLoading]     = useState(true);
   const [haConnected, setHaConnected] = useState(false);
+  const [likedTracks, setLikedTracks] = useState<Set<string>>(getLikedTracks);
 
   const doFetch = async () => {
     try {
@@ -63,6 +72,23 @@ export default function Spotify() {
     duration: activePlayer?.attributes?.media_duration     || 0,
     position: activePlayer?.attributes?.media_position     || 0,
     volume:   activePlayer?.attributes?.volume_level       ?? 0.5,
+    shuffle:  activePlayer?.attributes?.shuffle            ?? false,
+    repeat:   (activePlayer?.attributes?.repeat as string) || "off",
+  };
+
+  const likeKey = `${track.title}|${track.artist}`;
+  const isLiked = likedTracks.has(likeKey);
+
+  const toggleLike = () => {
+    const next = new Set(likedTracks);
+    if (next.has(likeKey)) next.delete(likeKey); else next.add(likeKey);
+    setLikedTracks(next);
+    saveLikedTracks(next);
+  };
+
+  const cycleRepeat = () => {
+    const next = track.repeat === "off" ? "all" : track.repeat === "all" ? "one" : "off";
+    cmd("repeat_set", { repeat: next });
   };
 
   const progress = track.duration > 0 ? Math.min(100, (track.position / track.duration) * 100) : 0;
@@ -200,7 +226,14 @@ export default function Spotify() {
               style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
 
               {/* Playback buttons */}
-              <div className="flex items-center justify-center gap-6">
+              <div className="flex items-center justify-center gap-3">
+                {/* Shuffle */}
+                <button onClick={() => cmd("shuffle_set", { shuffle: !track.shuffle })} disabled={!activePlayer}
+                  title={track.shuffle ? "Désactiver aléatoire" : "Activer aléatoire"}
+                  className={`h-9 w-9 rounded-xl flex items-center justify-center transition-all disabled:opacity-25 ${track.shuffle ? "text-purple-400 bg-purple-500/15" : "text-gray-600 hover:text-gray-300 hover:bg-white/5"}`}>
+                  <Shuffle className="h-3.5 w-3.5" />
+                </button>
+
                 <button onClick={() => cmd("media_previous_track")} disabled={!activePlayer}
                   className="h-9 w-9 rounded-xl flex items-center justify-center text-gray-500 hover:text-gray-200 disabled:opacity-25 transition-all hover:bg-white/5">
                   <SkipBack className="h-4 w-4" />
@@ -215,6 +248,28 @@ export default function Spotify() {
                 <button onClick={() => cmd("media_next_track")} disabled={!activePlayer}
                   className="h-9 w-9 rounded-xl flex items-center justify-center text-gray-500 hover:text-gray-200 disabled:opacity-25 transition-all hover:bg-white/5">
                   <SkipForward className="h-4 w-4" />
+                </button>
+
+                {/* Repeat */}
+                <button onClick={cycleRepeat} disabled={!activePlayer}
+                  title={track.repeat === "off" ? "Activer répétition" : track.repeat === "all" ? "Répéter 1 seule" : "Désactiver répétition"}
+                  className={`h-9 w-9 rounded-xl flex items-center justify-center transition-all disabled:opacity-25 ${track.repeat !== "off" ? "text-purple-400 bg-purple-500/15" : "text-gray-600 hover:text-gray-300 hover:bg-white/5"}`}>
+                  {track.repeat === "one" ? <Repeat1 className="h-3.5 w-3.5" /> : <Repeat className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+
+              {/* Like button */}
+              <div className="flex justify-center">
+                <button onClick={toggleLike} disabled={!activePlayer || track.title === "Aucune lecture"}
+                  title={isLiked ? "Retirer des favoris" : "Ajouter aux favoris"}
+                  className="flex items-center gap-2 px-4 py-1.5 rounded-full transition-all disabled:opacity-25"
+                  style={isLiked
+                    ? { background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)" }
+                    : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                  <Heart className={`h-3.5 w-3.5 transition-all ${isLiked ? "fill-red-400 text-red-400 scale-110" : "text-gray-600"}`} />
+                  <span className={`text-[10px] font-semibold ${isLiked ? "text-red-400" : "text-gray-600"}`}>
+                    {isLiked ? "Aimé" : "J'aime"}
+                  </span>
                 </button>
               </div>
 

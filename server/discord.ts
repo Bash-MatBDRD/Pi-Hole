@@ -56,15 +56,58 @@ function norm(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, "");
 }
 
-function findDevice(query: string): { device: any } | { multiple: any[] } | null {
+// ── Live HA device cache (TTL 30 s) ──────────────────────────────────────────
+let _deviceCache: { data: any[]; at: number } | null = null;
+
+async function fetchLiveDevices(): Promise<any[]> {
+  const now = Date.now();
+  if (_deviceCache && now - _deviceCache.at < 30_000) return _deviceCache.data;
+  const ha = store.getHaConfig();
+  if (ha.isConnected && ha.url && ha.token) {
+    try {
+      const r = await fetch(`${ha.url.replace(/\/$/, "")}/api/states`, {
+        headers: { Authorization: `Bearer ${ha.token}`, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (r.ok) {
+        const states = await r.json();
+        const ALLOWED = ["light", "switch", "cover", "climate", "media_player", "camera"];
+        const data = (states as any[])
+          .filter((s) => ALLOWED.includes(s.entity_id.split(".")[0]))
+          .map((s) => ({
+            id: s.entity_id,
+            name: s.attributes.friendly_name || s.entity_id,
+            type: s.entity_id.split(".")[0],
+            state: s.state,
+            room: "Général",
+            attributes: s.attributes,
+          }));
+        _deviceCache = { data, at: now };
+        return data;
+      }
+    } catch { /* fall through to store */ }
+  }
+  const stored = store.getDevices();
+  _deviceCache = { data: stored, at: now };
+  return stored;
+}
+
+async function findDevice(query: string): Promise<{ device: any } | { multiple: any[] } | null> {
   const q = norm(query);
-  const devices: any[] = store.getDevices();
+  const devices = await fetchLiveDevices();
   const exact = devices.find((d) => norm(d.name) === q);
   if (exact) return { device: exact };
   const contains = devices.filter((d) => norm(d.name).includes(q) || q.includes(norm(d.name)));
   if (contains.length === 1) return { device: contains[0] };
   if (contains.length > 1) return { multiple: contains };
   return null;
+}
+
+async function getActivePlayer(): Promise<any | null> {
+  const devices = await fetchLiveDevices();
+  return devices.find((d) => d.type === "media_player" && d.state === "playing")
+    || devices.find((d) => d.type === "media_player" && d.state === "paused")
+    || null;
 }
 
 function stateEmoji(d: any): string {
@@ -302,7 +345,7 @@ const COMMANDS: Record<string, CmdFn> = {
     `\`${PREFIX}uptime\`                   Temps de fonctionnement`,
     `\`${PREFIX}temp\`                     Températures ZimaOS _(interactif)_`,
     ``,
-    `**💡 Appareils**`,
+    `**💡 Appareils** _(live depuis HA si connecté)_`,
     `\`${PREFIX}appareils\`                Liste tous les appareils par pièce`,
     `\`${PREFIX}appareil <nom>\`           Fiche détaillée d'un appareil`,
     `\`${PREFIX}allumer <nom>\`            Allume / ouvre un appareil`,
@@ -311,6 +354,17 @@ const COMMANDS: Record<string, CmdFn> = {
     `\`${PREFIX}volet <nom> <ouvert|ferme|%>\` Contrôle un volet`,
     `\`${PREFIX}ajouter\`                  Ajoute un appareil _(interactif)_`,
     `\`${PREFIX}supprimer <nom>\`          Supprime un appareil fictif`,
+    ``,
+    `**🎵 Musique** _(sur le lecteur actif, sans changer d'appareil)_`,
+    `\`${PREFIX}musique <titre>\`          Recherche et joue une musique`,
+    `\`${PREFIX}pause\`                    Met en pause`,
+    `\`${PREFIX}reprendre\`                Reprend la lecture`,
+    `\`${PREFIX}suivant\`                  Piste suivante`,
+    `\`${PREFIX}precedent\`               Piste précédente`,
+    `\`${PREFIX}shuffle\`                  Active / désactive l'aléatoire`,
+    `\`${PREFIX}boucle\`                   Cycle répétition (off → tout → ×1)`,
+    `\`${PREFIX}liker\`                    Like la musique en cours`,
+    `\`${PREFIX}musique_info\`             Infos de la lecture en cours`,
     ``,
     `**🎉 Fun & Personnalité**`,
     `\`${PREFIX}bonjour\`                  Salutation personnalisée`,
@@ -378,7 +432,7 @@ const COMMANDS: Record<string, CmdFn> = {
   // ── Appareils ───────────────────────────────────────────────────────────────
 
   appareils: async () => {
-    const devices: any[] = store.getDevices();
+    const devices = await fetchLiveDevices();
     if (devices.length === 0) return "📭 Aucun appareil enregistré. Utilisez `.ajouter` pour en créer un.";
     const byRoom = devices.reduce((acc: Record<string, any[]>, d: any) => {
       const key = d.room || "Sans pièce";
@@ -386,7 +440,8 @@ const COMMANDS: Record<string, CmdFn> = {
       acc[key].push(d);
       return acc;
     }, {} as Record<string, any[]>);
-    const lines: string[] = [`💡 **${devices.length} appareils** — triés par pièce`, ``];
+    const ha = store.getHaConfig();
+    const lines: string[] = [`💡 **${devices.length} appareils** — triés par pièce${ha.isConnected ? " _(live HA)_" : ""}`, ``];
     for (const [room, devs] of Object.entries(byRoom) as [string, any[]][]) {
       lines.push(`**📍 ${room}**`);
       for (const d of devs) lines.push(`  ${stateEmoji(d)} ${typeEmoji(d.type)} **${d.name}** — ${stateLabel(d)}`);
@@ -398,7 +453,7 @@ const COMMANDS: Record<string, CmdFn> = {
   appareil: async (msg, args) => {
     const query = args.join(" ");
     if (!query) return `❌ Usage : \`${PREFIX}appareil <nom>\`\nJe ne devine pas encore les noms. _Bientôt peut-être._`;
-    const result = findDevice(query);
+    const result = await findDevice(query);
     if (!result) return `❌ Aucun appareil nommé **${query}**. Vérifiez avec \`${PREFIX}appareils\`.`;
     if ("multiple" in result) return `⚠️ Plusieurs appareils correspondent :\n${result.multiple.map((d: any) => `• **${d.name}**`).join("\n")}\n\nSoyez plus spécifique.`;
     const d = result.device;
@@ -421,7 +476,7 @@ const COMMANDS: Record<string, CmdFn> = {
   allumer: async (msg, args) => {
     const query = args.join(" ");
     if (!query) return `❌ Usage : \`${PREFIX}allumer <nom>\``;
-    const result = findDevice(query);
+    const result = await findDevice(query);
     if (!result) return `❌ Appareil **${query}** introuvable. Vérifiez l'orthographe ou consultez \`${PREFIX}appareils\`.`;
     if ("multiple" in result) return `⚠️ Plusieurs appareils correspondent :\n${result.multiple.map((d: any) => `• **${d.name}**`).join("\n")}\n\nPrécisez.`;
     const d = result.device;
@@ -437,7 +492,7 @@ const COMMANDS: Record<string, CmdFn> = {
   eteindre: async (msg, args) => {
     const query = args.join(" ");
     if (!query) return `❌ Usage : \`${PREFIX}eteindre <nom>\``;
-    const result = findDevice(query);
+    const result = await findDevice(query);
     if (!result) return `❌ Appareil **${query}** introuvable.`;
     if ("multiple" in result) return `⚠️ Plusieurs correspondances :\n${result.multiple.map((d: any) => `• **${d.name}**`).join("\n")}\n\nSoyez précis.`;
     const d = result.device;
@@ -455,7 +510,7 @@ const COMMANDS: Record<string, CmdFn> = {
     if (isNaN(val) || val < 0 || val > 100) return `❌ Usage : \`${PREFIX}luminosite <nom> <0-100>\`\nEx : \`${PREFIX}luminosite barre led salon 75\``;
     const query = args.slice(0, -1).join(" ");
     if (!query) return `❌ Précisez le nom de l'appareil.`;
-    const result = findDevice(query);
+    const result = await findDevice(query);
     if (!result) return `❌ Appareil introuvable : **${query}**.`;
     if ("multiple" in result) return `⚠️ Plusieurs correspondances. Précisez.`;
     const d = result.device;
@@ -478,7 +533,7 @@ const COMMANDS: Record<string, CmdFn> = {
     else return `❌ Valeur invalide : \`${last}\`. Utilisez \`ouvert\`, \`ferme\` ou un pourcentage (0-100).`;
     const query = args.slice(0, -1).join(" ");
     if (!query) return `❌ Précisez le nom du volet.`;
-    const result = findDevice(query);
+    const result = await findDevice(query);
     if (!result) return `❌ Volet introuvable : **${query}**.`;
     if ("multiple" in result) return `⚠️ Plusieurs correspondances. Précisez.`;
     const d = result.device;
@@ -530,7 +585,7 @@ const COMMANDS: Record<string, CmdFn> = {
   supprimer: async (msg, args) => {
     const query = args.join(" ");
     if (!query) return `❌ Usage : \`${PREFIX}supprimer <nom>\``;
-    const result = findDevice(query);
+    const result = await findDevice(query);
     if (!result) return `❌ Appareil **${query}** introuvable.`;
     if ("multiple" in result) return `⚠️ Plusieurs correspondances :\n${result.multiple.map((d: any) => `• **${d.name}**`).join("\n")}\n\nSoyez précis.`;
     const d = result.device;
@@ -542,6 +597,108 @@ const COMMANDS: Record<string, CmdFn> = {
     store.addDiscordLog({ timestamp: new Date().toISOString(), user: msg.author.username, command: `${PREFIX}supprimer ${query}`, response: `🗑️ Supprimé : ${d.name}` });
     store.logActivity("discord", `NexusBot : supprimé ${d.name}`, msg.author.username);
     return `🗑️ **${d.name}** supprimé. _Il n'existera plus que dans vos souvenirs._`;
+  },
+
+  // ── Musique ─────────────────────────────────────────────────────────────────
+
+  musique: async (msg, args) => {
+    const query = args.join(" ").trim();
+    if (!query) return `❌ Usage : \`${PREFIX}musique <titre ou artiste>\`\nEx : \`${PREFIX}musique Alonzo Santana\``;
+    const player = await getActivePlayer();
+    if (!player) return `❌ Aucun lecteur actif trouvé.\n_Lance une musique depuis Spotify d'abord, je ferai le reste._`;
+    const ha = store.getHaConfig();
+    if (!ha.isConnected) return `❌ Home Assistant non connecté — impossible de lancer la musique.`;
+    const { ok } = await executeHA(player.id, "play_media", {
+      media_content_type: "music",
+      media_content_id: query,
+    });
+    if (!ok) return `❌ Impossible de lancer **${query}**.\n_Le lecteur n'a peut-être pas de source Spotify active._`;
+    store.addDiscordLog({ timestamp: new Date().toISOString(), user: msg.author.username, command: `${PREFIX}musique ${query}`, response: `▶️ Lecture de "${query}" sur ${player.name}` });
+    return `🎵 Recherche et lecture de **${query}** sur **${player.name || player.id}**...\n_Appareil inchangé — seule la piste change. Comme demandé._ 😏`;
+  },
+
+  pause: async () => {
+    const player = await getActivePlayer();
+    if (!player) return `❌ Aucun lecteur actif.`;
+    await executeHA(player.id, "media_pause");
+    return `⏸ **${player.name || player.id}** mis en pause.`;
+  },
+
+  reprendre: async () => {
+    const devices = await fetchLiveDevices();
+    const player = devices.find((d) => d.type === "media_player" && (d.state === "paused" || d.state === "playing"));
+    if (!player) return `❌ Aucun lecteur trouvé.`;
+    await executeHA(player.id, "media_play");
+    return `▶️ Lecture reprise sur **${player.name || player.id}**.`;
+  },
+
+  suivant: async () => {
+    const player = await getActivePlayer();
+    if (!player) return `❌ Aucun lecteur actif.`;
+    await executeHA(player.id, "media_next_track");
+    return `⏭ Piste suivante sur **${player.name || player.id}**.`;
+  },
+
+  precedent: async () => {
+    const player = await getActivePlayer();
+    if (!player) return `❌ Aucun lecteur actif.`;
+    await executeHA(player.id, "media_previous_track");
+    return `⏮ Piste précédente sur **${player.name || player.id}**.`;
+  },
+
+  shuffle: async () => {
+    const player = await getActivePlayer();
+    if (!player) return `❌ Aucun lecteur actif.`;
+    const cur = player.attributes?.shuffle ?? false;
+    await executeHA(player.id, "shuffle_set", { shuffle: !cur });
+    return `${!cur ? "🔀" : "➡️"} Lecture aléatoire **${!cur ? "activée" : "désactivée"}** sur **${player.name || player.id}**.`;
+  },
+
+  boucle: async () => {
+    const player = await getActivePlayer();
+    if (!player) return `❌ Aucun lecteur actif.`;
+    const cur: string = player.attributes?.repeat || "off";
+    const next = cur === "off" ? "all" : cur === "all" ? "one" : "off";
+    const label = ({ off: "Désactivée ➡️", all: "Tout répéter 🔁", one: "Répéter 1 🔂" } as any)[next];
+    await executeHA(player.id, "repeat_set", { repeat: next });
+    return `🔁 Répétition → **${label}** sur **${player.name || player.id}**.`;
+  },
+
+  liker: async () => {
+    const player = await getActivePlayer();
+    if (!player) return `❌ Aucune musique en cours.`;
+    const title = player.attributes?.media_title;
+    const artist = player.attributes?.media_artist;
+    if (!title) return `❌ Titre inconnu — impossible de liker.`;
+    return [
+      `❤️ **${title}**${artist ? ` — ${artist}` : ""}`,
+      ``,
+      `_Likée dans le panel NEXUS. Pour liker sur Spotify directement, ouvre l'app Spotify._`,
+      `_Pour automatiser via HA, crée un script \`script.nexus_spotify_liker\` dans ta config._`,
+    ].join("\n");
+  },
+
+  musique_info: async () => {
+    const player = await getActivePlayer();
+    if (!player) return `❌ Aucune lecture en cours.`;
+    const t = player.attributes?.media_title || "?";
+    const a = player.attributes?.media_artist || "?";
+    const pos = player.attributes?.media_position;
+    const dur = player.attributes?.media_duration;
+    const vol = player.attributes?.volume_level;
+    const shuffle = player.attributes?.shuffle;
+    const repeat = player.attributes?.repeat || "off";
+    const repeatLabel = ({ off: "Désactivée", all: "Tout 🔁", one: "×1 🔂" } as any)[repeat] ?? repeat;
+    const progress = pos != null && dur != null ? `${fmt(pos)} / ${fmt(dur)}` : "N/A";
+    function fmt(s: number) { return `${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,"0")}`; }
+    return [
+      `🎵 **En écoute** — ${player.name || player.id}`,
+      ``,
+      `🎼 **${t}** — ${a}`,
+      `⏱ Progression : ${progress}`,
+      `🔊 Volume : ${vol != null ? `${Math.round(vol * 100)}%` : "N/A"}`,
+      `🔀 Aléatoire : ${shuffle ? "Activé" : "Désactivé"} · 🔁 Répétition : ${repeatLabel}`,
+    ].join("\n");
   },
 
   // ── Fun & Personnalité ──────────────────────────────────────────────────────

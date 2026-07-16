@@ -230,40 +230,84 @@ function SwitchCard({ device, onCommand }: { device: Device; onCommand: (id: str
   );
 }
 
+function getMediaBrand(device: Device): { color: string; label: string; icon: string } {
+  const id = (device.id + " " + device.name).toLowerCase();
+  if (id.includes("playstation") || id.includes("ps5") || id.includes("ps4") || id.includes("psn"))
+    return { color: "#003791", label: "PlayStation", icon: "PS" };
+  if (id.includes("xbox") || id.includes("series"))
+    return { color: "#107C10", label: "Xbox", icon: "X" };
+  if (id.includes("spotify"))
+    return { color: "#1db954", label: "Spotify", icon: "S" };
+  if (id.includes("firetv") || id.includes("fire_tv") || id.includes("firestick") || id.includes("fire stick"))
+    return { color: "#FF9900", label: "Fire TV", icon: "F" };
+  if (id.includes("chromecast") || id.includes("google"))
+    return { color: "#4285F4", label: "Chromecast", icon: "G" };
+  if (id.includes("apple") || id.includes("airplay"))
+    return { color: "#999999", label: "Apple", icon: "A" };
+  return { color: "#a855f7", label: "Lecteur", icon: "♪" };
+}
+
 function MediaCard({ device, onCommand }: { device: Device; onCommand: (id: string, svc: string, d?: any) => Promise<void> }) {
   const isPlaying = device.state === "playing";
   const vol = device.attributes?.volume_level ?? 0.5;
-  const color = "#a855f7";
   const title = device.attributes?.media_title;
   const artist = device.attributes?.media_artist;
+  const img = device.attributes?.entity_picture || device.attributes?.media_image_url;
+  const brand = getMediaBrand(device);
+  const color = brand.color;
+
   return (
-    <div className="rounded-2xl overflow-hidden" style={{ background: isPlaying ? "rgba(168,85,247,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${isPlaying ? "rgba(168,85,247,0.22)" : "rgba(255,255,255,0.06)"}` }}>
-      <div className="relative h-16 flex items-center justify-center overflow-hidden"
-        style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.12), rgba(99,102,241,0.08))" }}>
-        <div className="flex gap-1 items-end h-8">
-          {[3, 5, 7, 4, 6, 5, 3].map((h, i) => (
-            <div key={i} className={`w-1 rounded-full ${isPlaying ? "animate-bounce" : ""}`}
-              style={{ height: `${h * 3}px`, background: `rgba(168,85,247,${isPlaying ? 0.6 : 0.2})`, animationDelay: `${i * 0.1}s` }} />
-          ))}
+    <div className="rounded-2xl overflow-hidden" style={{ background: isPlaying ? `${color}0d` : "rgba(255,255,255,0.03)", border: `1px solid ${isPlaying ? color + "38" : "rgba(255,255,255,0.06)"}` }}>
+      {/* Header with album art / brand */}
+      <div className="relative h-16 flex items-center overflow-hidden"
+        style={{ background: `linear-gradient(135deg, ${color}18, ${color}06)` }}>
+        {img && isPlaying && (
+          <img src={img} alt="" className="absolute inset-0 w-full h-full object-cover opacity-20 blur-sm" />
+        )}
+        <div className="relative flex items-center gap-2.5 px-3 w-full">
+          {/* Brand badge or album art */}
+          {img && isPlaying ? (
+            <img src={img} alt="cover" className="h-10 w-10 rounded-lg object-cover shrink-0"
+              style={{ boxShadow: `0 2px 12px ${color}50` }} />
+          ) : (
+            <div className="h-10 w-10 rounded-lg flex items-center justify-center shrink-0 font-black text-sm"
+              style={{ background: `${color}22`, border: `1px solid ${color}35`, color }}>
+              {brand.icon}
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-[8px] font-bold uppercase tracking-wider" style={{ color: `${color}cc` }}>{brand.label}</p>
+            <p className="text-xs font-bold text-white truncate">{device.name}</p>
+          </div>
+          {/* Waveform */}
+          <div className="flex gap-0.5 items-end h-6 shrink-0">
+            {[3, 5, 7, 4, 6, 5, 3].map((h, i) => (
+              <div key={i} className={`w-0.5 rounded-full ${isPlaying ? "animate-bounce" : ""}`}
+                style={{ height: `${h * 2}px`, background: isPlaying ? color : "rgba(255,255,255,0.1)", animationDelay: `${i * 0.1}s`, opacity: isPlaying ? 0.8 : 0.3 }} />
+            ))}
+          </div>
         </div>
       </div>
+
       <div className="p-3 space-y-2">
+        {/* Track info */}
         <div>
-          <p className="text-xs font-bold text-white truncate">{device.name}</p>
           {title ? (
-            <p className="text-[9px] text-purple-300/60 truncate">{artist} — {title}</p>
+            <p className="text-[9px] truncate" style={{ color: `${color}99` }}>{artist} — {title}</p>
           ) : (
-            <p className="text-[9px] text-gray-700">{device.state}</p>
+            <p className="text-[9px] text-gray-700 capitalize">{device.state}</p>
           )}
         </div>
+
+        {/* Controls */}
         <div className="flex items-center gap-2">
           <button onClick={() => onCommand(device.id, isPlaying ? "media_pause" : "media_play")}
-            className="h-7 w-7 rounded-full flex items-center justify-center"
+            className="h-7 w-7 rounded-full flex items-center justify-center transition-all hover:scale-105"
             style={{ background: `${color}25`, border: `1px solid ${color}35` }}>
             {isPlaying ? <Pause className="h-3.5 w-3.5" style={{ color }} /> : <Play className="h-3.5 w-3.5" style={{ color }} />}
           </button>
           <button onClick={() => onCommand(device.id, "media_next_track")}
-            className="h-7 w-7 rounded-full flex items-center justify-center hover:bg-white/5">
+            className="h-7 w-7 rounded-full flex items-center justify-center hover:bg-white/5 transition-all">
             <SkipForward className="h-3.5 w-3.5 text-gray-600" />
           </button>
           <div className="flex-1 flex items-center gap-1.5">

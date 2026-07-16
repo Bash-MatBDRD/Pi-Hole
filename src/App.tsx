@@ -217,7 +217,7 @@ function LoginScreen({ username, password, onLogin }: {
 function AppLayout({ onLock, onLogout, username }: {
   onLock: () => void; onLogout: () => void; username: string;
 }) {
-  const [spotifyTrack, setSpotifyTrack] = useState<{ title: string; artist: string; playing: boolean } | null>(null);
+  const [spotifyTrack, setSpotifyTrack] = useState<{ title: string; artist: string; playing: boolean; img?: string; entityId?: string; shuffle?: boolean; repeat?: string } | null>(null);
   const [haConnected,  setHaConnected]  = useState(false);
   const [botOnline,    setBotOnline]    = useState(false);
 
@@ -230,7 +230,15 @@ function AppLayout({ onLock, onLogout, username }: {
           fetch("/api/home-assistant/config").then(r => r.json()),
         ]);
         const mp = devicesRes?.find((d: any) => d.type === "media_player" && d.state === "playing");
-        setSpotifyTrack(mp ? { title: mp.attributes?.media_title || "Inconnu", artist: mp.attributes?.media_artist || "", playing: true } : null);
+        setSpotifyTrack(mp ? {
+          title:    mp.attributes?.media_title  || "Inconnu",
+          artist:   mp.attributes?.media_artist || "",
+          playing:  true,
+          img:      mp.attributes?.entity_picture || mp.attributes?.media_image_url || "",
+          entityId: mp.id,
+          shuffle:  mp.attributes?.shuffle,
+          repeat:   mp.attributes?.repeat,
+        } : null);
         setBotOnline(statsRes?.discordBot?.status === "online");
         setHaConnected(haRes?.isConnected || false);
       } catch {}

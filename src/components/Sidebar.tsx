@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Home, Music, MessageSquare, Server, FolderOpen,
   Settings, Lock, LogOut, ChevronRight, Pin, PinOff,
   Cloud, Network, StickyNote, Terminal,
+  SkipBack, SkipForward, Play, Pause,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { getThemeColor, getLogoStyle, getLetterStyle, getContainerShape, getFontClass } from "../lib/theme";
@@ -11,7 +12,7 @@ import { getThemeColor, getLogoStyle, getLetterStyle, getContainerShape, getFont
 interface Props {
   onLock: () => void;
   onLogout: () => void;
-  spotifyTrack?: { title: string; artist: string; playing: boolean } | null;
+  spotifyTrack?: { title: string; artist: string; playing: boolean; img?: string; entityId?: string; shuffle?: boolean; repeat?: string } | null;
 }
 
 const NAV_GROUPS = [
@@ -73,9 +74,21 @@ export default function Sidebar({ onLock, onLogout, spotifyTrack }: Props) {
   const [hovered, setHovered]   = useState(false);
   const [pinned, setPinned]     = useState(() => localStorage.getItem("nexus-sidebar-pinned") !== "false");
   const location = useLocation();
+  const navigate = useNavigate();
   const { color, style } = useTheme();
   const ref = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const haCmd = async (service: string, data?: any) => {
+    if (!spotifyTrack?.entityId) return;
+    try {
+      await fetch("/api/home-assistant/command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entity_id: spotifyTrack.entityId, service, data }),
+      });
+    } catch {}
+  };
 
   const expanded = hovered || pinned;
 
@@ -166,33 +179,93 @@ export default function Sidebar({ onLock, onLogout, spotifyTrack }: Props) {
               ))}
             </nav>
 
-            {/* Spotify mini-player */}
+            {/* Dynamic Island — mini-player */}
             <AnimatePresence>
               {spotifyTrack && (
                 <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 8 }}
-                  className="mt-3 rounded-xl px-3 py-2.5 mb-2"
-                  style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.15)" }}
+                  initial={{ opacity: 0, y: 10, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.96 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                  className="mt-3 mb-2 rounded-2xl overflow-hidden"
+                  style={{
+                    background: "rgba(10,10,18,0.97)",
+                    border: "1px solid rgba(168,85,247,0.22)",
+                    boxShadow: spotifyTrack.playing
+                      ? "0 0 20px rgba(168,85,247,0.18), inset 0 1px 0 rgba(255,255,255,0.05)"
+                      : "inset 0 1px 0 rgba(255,255,255,0.04)",
+                  }}
                 >
-                  <div className="flex items-center gap-2">
-                    <Music className="h-3.5 w-3.5 text-purple-400 shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-semibold text-white truncate">{spotifyTrack.title}</p>
-                      <p className="text-[9px] text-gray-500 truncate">{spotifyTrack.artist}</p>
+                  {/* Album art blurred background */}
+                  {spotifyTrack.img && (
+                    <img
+                      src={spotifyTrack.img}
+                      alt=""
+                      className="absolute inset-0 w-full h-full object-cover opacity-[0.06] blur-lg scale-110 pointer-events-none"
+                    />
+                  )}
+
+                  {/* Main row */}
+                  <div className="relative flex items-center gap-2.5 px-2.5 pt-2.5 pb-1.5">
+                    {/* Album art */}
+                    <div
+                      className="shrink-0 h-9 w-9 rounded-xl overflow-hidden cursor-pointer"
+                      onClick={() => navigate("/spotify")}
+                      style={{ boxShadow: "0 2px 12px rgba(168,85,247,0.35)" }}
+                    >
+                      {spotifyTrack.img ? (
+                        <img src={spotifyTrack.img} alt="cover" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center"
+                          style={{ background: "rgba(168,85,247,0.2)" }}>
+                          <Music className="h-4 w-4 text-purple-400" />
+                        </div>
+                      )}
                     </div>
+
+                    {/* Track info */}
+                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigate("/spotify")}>
+                      <p className="text-[10px] font-bold text-white truncate leading-tight">{spotifyTrack.title}</p>
+                      <p className="text-[9px] text-gray-500 truncate leading-tight mt-0.5">{spotifyTrack.artist}</p>
+                    </div>
+
+                    {/* Animated bars */}
                     {spotifyTrack.playing && (
-                      <div className="flex gap-0.5 items-end shrink-0 ml-auto">
-                        {[3, 5, 4, 6].map((h, i) => (
+                      <div className="flex gap-0.5 items-end shrink-0 h-5">
+                        {[3, 6, 4, 7, 5].map((h, i) => (
                           <div
                             key={i}
-                            className="w-0.5 bg-purple-400 rounded-full animate-bounce"
-                            style={{ height: `${h}px`, animationDelay: `${i * 0.1}s` }}
+                            className="w-0.5 rounded-full animate-bounce"
+                            style={{ height: `${h}px`, background: "#a855f7", animationDelay: `${i * 0.1}s` }}
                           />
                         ))}
                       </div>
                     )}
+                  </div>
+
+                  {/* Control row */}
+                  <div className="relative flex items-center justify-center gap-1 px-2.5 pb-2">
+                    <button
+                      onClick={() => haCmd("media_previous_track")}
+                      className="h-7 w-7 rounded-xl flex items-center justify-center text-gray-600 hover:text-gray-200 hover:bg-white/6 transition-all"
+                    >
+                      <SkipBack className="h-3 w-3" />
+                    </button>
+                    <button
+                      onClick={() => haCmd(spotifyTrack.playing ? "media_pause" : "media_play")}
+                      className="h-8 w-8 rounded-xl flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+                      style={{ background: "rgba(168,85,247,0.25)", border: "1px solid rgba(168,85,247,0.35)" }}
+                    >
+                      {spotifyTrack.playing
+                        ? <Pause className="h-3.5 w-3.5 text-purple-300" />
+                        : <Play  className="h-3.5 w-3.5 text-purple-300 ml-0.5" />}
+                    </button>
+                    <button
+                      onClick={() => haCmd("media_next_track")}
+                      className="h-7 w-7 rounded-xl flex items-center justify-center text-gray-600 hover:text-gray-200 hover:bg-white/6 transition-all"
+                    >
+                      <SkipForward className="h-3 w-3" />
+                    </button>
                   </div>
                 </motion.div>
               )}
