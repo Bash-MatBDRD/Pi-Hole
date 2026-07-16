@@ -76,7 +76,7 @@ export default function Spotify() {
     } catch {}
   };
 
-  const roomLabel = (d: Device) => areaNames[d.room] || d.room || "—";
+  const roomLabel = (d: Device | undefined) => d ? (areaNames[d.room] || d.room || "—") : "—";
 
   return (
     <div className="h-full flex flex-col overflow-hidden" style={{ background: "#050508" }}>
