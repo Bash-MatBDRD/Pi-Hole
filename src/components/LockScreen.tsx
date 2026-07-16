@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from "react";
-import { motion } from "motion/react";
-import { Lock, Eye, EyeOff, LogOut } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { Lock, Eye, EyeOff, LogOut, Music2 } from "lucide-react";
 import { getThemeColor, getLogoStyle, getLetterStyle, getContainerShape, getFontClass } from "../lib/theme";
+
+interface SpotifyTrack { title: string; artist: string; playing: boolean; img?: string; entityId?: string }
 
 interface Props {
   username: string;
   password: string;
   onUnlock: () => void;
   onLogout: () => void;
+  spotifyTrack?: SpotifyTrack | null;
 }
 
-export default function LockScreen({ username, password, onUnlock, onLogout }: Props) {
+export default function LockScreen({ username, password, onUnlock, onLogout, spotifyTrack }: Props) {
   const [input, setInput]     = useState("");
   const [error, setError]     = useState("");
   const [showPwd, setShowPwd] = useState(false);
@@ -107,6 +110,44 @@ export default function LockScreen({ username, password, onUnlock, onLogout }: P
           <LogOut className="h-3.5 w-3.5" /> Se déconnecter
         </button>
       </motion.div>
+
+      {/* Spotify mini-player at the bottom */}
+      <AnimatePresence>
+        {spotifyTrack && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-3 rounded-2xl"
+            style={{
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.10)",
+              backdropFilter: "blur(20px)",
+              minWidth: 260, maxWidth: 360,
+            }}
+          >
+            {spotifyTrack.img ? (
+              <img src={spotifyTrack.img} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
+            ) : (
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: color.bg }}>
+                <Music2 className="h-4 w-4 text-white" />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-white truncate">{spotifyTrack.title}</p>
+              <p className="text-[10px] text-gray-500 truncate">{spotifyTrack.artist}</p>
+            </div>
+            {/* Animated bars */}
+            <div className="flex items-end gap-[2px] h-4 shrink-0">
+              {[0, 150, 75, 225].map((delay) => (
+                <span key={delay} className="w-[3px] rounded-full animate-pulse"
+                  style={{ background: color.hex, height: spotifyTrack.playing ? "100%" : "30%",
+                    animationDelay: `${delay}ms`, animationDuration: "900ms" }} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

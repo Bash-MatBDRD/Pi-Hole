@@ -211,6 +211,107 @@ async function getOsName(host: HostRecord): Promise<string> {
   }
 }
 
+// ── Extended properties (SMART, lscpu, lsblk) ────────────────────────────────
+
+export interface DiskSmart {
+  device: string;
+  model: string;
+  serial: string;
+  firmware: string;
+  capacity: string;
+  transport: string;
+  powerOnHours: number | null;
+  reallocatedSectors: number | null;
+  pendingSectors: number | null;
+  uncorrectable: number | null;
+  health: string;
+  temperature: number | null;
+  rotational: boolean;
+}
+
+export interface ExtendedProperties {
+  cpu: {
+    model: string;
+    architecture: string;
+    cores: number;
+    threads: number;
+    sockets: number;
+    baseFreqMhz: number;
+    cacheKb: number | null;
+    virtualization: string;
+  };
+  ram: { totalGb: number | null; type: string; speed: string };
+  disks: DiskSmart[];
+  motherboard: string;
+  kernel: string;
+}
+
+async function getCpuDetails(host: HostRecord): Promise<ExtendedProperties["cpu"]> {
+  const out = await run(host, "lscpu 2>/dev/null");
+  const g = (key: string) => {
+    const line = out.split("\n").find(l => l.toLowerCase().startsWith(key.toLowerCase()));
+    return line?.split(":")[1]?.trim() || "";
+  };
+  return {
+    model: g("model name") || g("cpu") || "Inconnu",
+    architecture: g("architecture") || "x86_64",
+    cores: parseInt(g("core(s) per socket")) || 1,
+    threads: parseInt(g("cpu(s)")) || 1,
+    sockets: parseInt(g("socket(s)")) || 1,
+    baseFreqMhz: parseFloat(g("cpu max mhz") || g("cpu mhz")) || 0,
+    cacheKb: (s => s ? parseInt(s) * (s.includes("M") ? 1024 : 1) : null)(g("l3 cache") || g("l2 cache")),
+    virtualization: g("virtualization") || "N/A",
+  };
+}
+
+async function getAllDisksSmart(host: HostRecord): Promise<DiskSmart[]> {
+  const listOut = await run(host, "lsblk -d -o NAME,TYPE,ROTA,TRAN,SIZE 2>/dev/null | awk '$2==\"disk\"{print $1\"|\"$3\"|\"$4\"|\"$5}'").catch(() => "");
+  const diskLines = listOut.trim().split("\n").filter(Boolean);
+  const devices = diskLines.map(l => { const p = l.split("|"); return { dev: `/dev/${p[0]}`, rota: p[1] === "1", tran: p[2] || "?", size: p[3] || "?" }; });
+  if (!devices.length) devices.push({ dev: "/dev/sda", rota: true, tran: "?", size: "?" });
+
+  const results: DiskSmart[] = [];
+  for (const { dev, rota, tran, size } of devices.slice(0, 4)) {
+    try {
+      const out = await run(host, `smartctl -i -A ${dev} 2>/dev/null; echo '===HEALTH==='; smartctl -H ${dev} 2>/dev/null | grep -i 'overall-health'`);
+      const [infoRaw, healthRaw] = out.split("===HEALTH===");
+      const g = (key: string) => infoRaw.split("\n").find(l => l.toLowerCase().includes(key.toLowerCase()))?.split(":").slice(1).join(":").trim() || "";
+      const attr = (id: string) => { const l = infoRaw.split("\n").find(l => l.toLowerCase().includes(id.toLowerCase())); return l ? parseInt(l.trim().split(/\s+/)[9]) : null; };
+      results.push({
+        device: dev,
+        model: g("device model") || g("model family") || "Inconnu",
+        serial: g("serial number") || "N/A",
+        firmware: g("firmware version") || "N/A",
+        capacity: g("user capacity").replace(/\[|\]/g, "") || size,
+        transport: tran.toUpperCase(),
+        powerOnHours: attr("power_on_hours"),
+        reallocatedSectors: attr("reallocated_sector"),
+        pendingSectors: attr("current_pending_sector"),
+        uncorrectable: attr("offline_uncorrectable"),
+        health: (healthRaw || "").toLowerCase().includes("passed") ? "✅ Bon état" : (healthRaw || "").trim() ? "⚠️ Attention" : "❓ N/A (root requis)",
+        temperature: attr("temperature_celsius"),
+        rotational: rota,
+      });
+    } catch {}
+  }
+  return results;
+}
+
+export async function getExtendedProperties(host: HostRecord): Promise<ExtendedProperties> {
+  const [cpuRes, disksRes, kernelOut] = await Promise.all([
+    safe(() => getCpuDetails(host)),
+    getAllDisksSmart(host),
+    safe(() => run(host, "uname -r")),
+  ]);
+  return {
+    cpu: cpuRes.data ?? { model: "Inconnu", architecture: "?", cores: 0, threads: 0, sockets: 1, baseFreqMhz: 0, cacheKb: null, virtualization: "N/A" },
+    ram: { totalGb: null, type: "?", speed: "?" },
+    disks: disksRes,
+    motherboard: "",
+    kernel: kernelOut.data?.trim() || "?",
+  };
+}
+
 export async function getZimaStats(host: HostRecord): Promise<ZimaStats> {
   const diskPath = host.filesRoot || "/DATA";
 

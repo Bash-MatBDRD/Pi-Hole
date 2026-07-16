@@ -110,6 +110,25 @@ async function getActivePlayer(): Promise<any | null> {
     || null;
 }
 
+/** Attends 2 s que HA mette à jour l'état puis retourne le titre/artiste de la nouvelle piste. */
+async function getUpdatedTrackInfo(entityId: string): Promise<string> {
+  await new Promise((r) => setTimeout(r, 2000));
+  try {
+    const ha = store.getHaConfig();
+    if (!ha.url || !ha.token) return "";
+    const r = await fetch(`${ha.url.replace(/\/$/, "")}/api/states/${entityId}`, {
+      headers: { Authorization: `Bearer ${ha.token}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) return "";
+    const state = await r.json();
+    const title = state.attributes?.media_title;
+    const artist = state.attributes?.media_artist;
+    if (!title) return "";
+    return `\n\n🎵 **Maintenant :** **${title}**${artist ? ` — *${artist}*` : ""}`;
+  } catch { return ""; }
+}
+
 function stateEmoji(d: any): string {
   const s = d.state;
   if (s === "on" || s === "open" || s === "playing") return "✅";
@@ -339,42 +358,52 @@ const COMMANDS: Record<string, CmdFn> = {
     `📋 **Commandes NexusBot** — Préfixe \`${PREFIX}\``,
     ``,
     `**📡 Informations**`,
-    `\`${PREFIX}ping\`                     Latence WebSocket`,
-    `\`${PREFIX}status\`                   Rapport complet du panel`,
-    `\`${PREFIX}ha\`                       Résumé Home Assistant`,
-    `\`${PREFIX}uptime\`                   Temps de fonctionnement`,
-    `\`${PREFIX}temp\`                     Températures ZimaOS _(interactif)_`,
+    `\`${PREFIX}ping\`                          Latence WebSocket`,
+    `\`${PREFIX}status\`                        Rapport complet du panel`,
+    `\`${PREFIX}ha\`                            Résumé Home Assistant`,
+    `\`${PREFIX}uptime\`                        Temps de fonctionnement`,
+    `\`${PREFIX}temp\`                          Températures ZimaOS _(interactif)_`,
+    `\`${PREFIX}nexus\`                         Rapport rapide du panel`,
     ``,
     `**💡 Appareils** _(live depuis HA si connecté)_`,
-    `\`${PREFIX}appareils\`                Liste tous les appareils par pièce`,
-    `\`${PREFIX}appareil <nom>\`           Fiche détaillée d'un appareil`,
-    `\`${PREFIX}allumer <nom>\`            Allume / ouvre un appareil`,
-    `\`${PREFIX}eteindre <nom>\`           Éteint / ferme un appareil`,
-    `\`${PREFIX}luminosite <nom> <0-100>\` Luminosité d'une lumière`,
-    `\`${PREFIX}volet <nom> <ouvert|ferme|%>\` Contrôle un volet`,
-    `\`${PREFIX}ajouter\`                  Ajoute un appareil _(interactif)_`,
-    `\`${PREFIX}supprimer <nom>\`          Supprime un appareil fictif`,
+    `\`${PREFIX}appareils\`                     Liste tous les appareils par pièce`,
+    `\`${PREFIX}appareil <nom>\`                Fiche détaillée d'un appareil`,
+    `\`${PREFIX}allumer <nom>\`                 Allume / ouvre un appareil`,
+    `\`${PREFIX}eteindre <nom>\`                Éteint / ferme un appareil`,
+    `\`${PREFIX}luminosite <nom> <0-100>\`      Luminosité d'une lumière`,
+    `\`${PREFIX}volet <nom> <ouvert|ferme|%>\`  Contrôle un volet`,
+    `\`${PREFIX}ajouter\`                       Ajoute un appareil _(interactif)_`,
+    `\`${PREFIX}supprimer <nom>\`               Supprime un appareil fictif`,
     ``,
-    `**🎵 Musique** _(sur le lecteur actif, sans changer d'appareil)_`,
-    `\`${PREFIX}musique <titre>\`          Recherche et joue une musique`,
-    `\`${PREFIX}pause\`                    Met en pause`,
-    `\`${PREFIX}reprendre\`                Reprend la lecture`,
-    `\`${PREFIX}suivant\`                  Piste suivante`,
-    `\`${PREFIX}precedent\`               Piste précédente`,
-    `\`${PREFIX}shuffle\`                  Active / désactive l'aléatoire`,
-    `\`${PREFIX}boucle\`                   Cycle répétition (off → tout → ×1)`,
-    `\`${PREFIX}liker\`                    Like la musique en cours`,
-    `\`${PREFIX}musique_info\`             Infos de la lecture en cours`,
+    `**🎵 Musique** _(lecteur actif, sans changer d'appareil)_`,
+    `\`${PREFIX}musique <titre>\`               Recherche + joue → affiche la nouvelle piste`,
+    `\`${PREFIX}pause\`                         Met en pause`,
+    `\`${PREFIX}reprendre\`                     Reprend la lecture`,
+    `\`${PREFIX}suivant\`                       Piste suivante → affiche le nouveau titre`,
+    `\`${PREFIX}precedent\`                    Piste précédente → affiche le nouveau titre`,
+    `\`${PREFIX}volume <0-100>\`                Règle le volume`,
+    `\`${PREFIX}sourdine\`                      Active / désactive la sourdine`,
+    `\`${PREFIX}shuffle\`                       Active / désactive l'aléatoire`,
+    `\`${PREFIX}boucle\`                        Cycle répétition (off → tout → ×1)`,
+    `\`${PREFIX}liker\`                         Affiche la musique en cours (like panel)`,
+    `\`${PREFIX}musique_info\`                  Infos complètes de la lecture`,
+    ``,
+    `**🛠️ Utilitaires**`,
+    `\`${PREFIX}sondage <question>\`            Crée un sondage 👍/👎/🤷`,
+    `\`${PREFIX}calculer <expression>\`         Calculatrice (+  −  ×  ÷  )`,
+    `\`${PREFIX}rappel <durée> <message>\`      Rappel différé (ex: \`.rappel 10m Four\`)`,
+    `\`${PREFIX}serveur\`                       Infos sur le serveur Discord`,
+    `\`${PREFIX}utilisateur [@mention]\`        Infos sur un utilisateur`,
     ``,
     `**🎉 Fun & Personnalité**`,
-    `\`${PREFIX}bonjour\`                  Salutation personnalisée`,
-    `\`${PREFIX}humeur\`                   Mon humeur du moment`,
-    `\`${PREFIX}blague\`                   Une blague tech/domotique`,
-    `\`${PREFIX}8ball <question>\`         La boule magique répond`,
-    `\`${PREFIX}de [NdF]\`                 Lance des dés (ex: \`.de 2d6\`)`,
-    `\`${PREFIX}conseil\`                  Conseil domotique du jour`,
-    `\`${PREFIX}citation\`                 Citation inspirante`,
-    `\`${PREFIX}aide\`                     Cette liste`,
+    `\`${PREFIX}bonjour\`                       Salutation personnalisée`,
+    `\`${PREFIX}humeur\`                        Mon humeur du moment`,
+    `\`${PREFIX}blague\`                        Une blague tech/domotique`,
+    `\`${PREFIX}8ball <question>\`              La boule magique répond`,
+    `\`${PREFIX}de [NdF]\`                      Lance des dés (ex: \`.de 2d6\`)`,
+    `\`${PREFIX}conseil\`                       Conseil domotique du jour`,
+    `\`${PREFIX}citation\`                      Citation inspirante`,
+    `\`${PREFIX}aide\`                          Cette liste`,
   ].join("\n"),
 
   // ── ZimaOS – températures (interactif) ─────────────────────────────────────
@@ -614,7 +643,8 @@ const COMMANDS: Record<string, CmdFn> = {
     });
     if (!ok) return `❌ Impossible de lancer **${query}**.\n_Le lecteur n'a peut-être pas de source Spotify active._`;
     store.addDiscordLog({ timestamp: new Date().toISOString(), user: msg.author.username, command: `${PREFIX}musique ${query}`, response: `▶️ Lecture de "${query}" sur ${player.name}` });
-    return `🎵 Recherche et lecture de **${query}** sur **${player.name || player.id}**...\n_Appareil inchangé — seule la piste change. Comme demandé._ 😏`;
+    const info = await getUpdatedTrackInfo(player.id);
+    return `🎵 Recherche de **${query}** sur **${player.name || player.id}**…${info || "\n_Lecture lancée — la piste arrive !_"}`;
   },
 
   pause: async () => {
@@ -636,14 +666,16 @@ const COMMANDS: Record<string, CmdFn> = {
     const player = await getActivePlayer();
     if (!player) return `❌ Aucun lecteur actif.`;
     await executeHA(player.id, "media_next_track");
-    return `⏭ Piste suivante sur **${player.name || player.id}**.`;
+    const info = await getUpdatedTrackInfo(player.id);
+    return `⏭ Piste suivante sur **${player.name || player.id}**.${info}`;
   },
 
   precedent: async () => {
     const player = await getActivePlayer();
     if (!player) return `❌ Aucun lecteur actif.`;
     await executeHA(player.id, "media_previous_track");
-    return `⏮ Piste précédente sur **${player.name || player.id}**.`;
+    const info = await getUpdatedTrackInfo(player.id);
+    return `⏮ Piste précédente sur **${player.name || player.id}**.${info}`;
   },
 
   shuffle: async () => {
@@ -757,6 +789,123 @@ const COMMANDS: Record<string, CmdFn> = {
   citation: async () => {
     const c = pick(CITATIONS);
     return `📖 _"${c.c}"_\n\n— **${c.a}**`;
+  },
+
+  // ── Utilitaires avancés ──────────────────────────────────────────────────────
+
+  volume: async (msg, args) => {
+    const val = parseInt(args[0], 10);
+    if (isNaN(val) || val < 0 || val > 100) return `❌ Usage : \`${PREFIX}volume <0-100>\`\nEx : \`${PREFIX}volume 65\``;
+    const player = await getActivePlayer();
+    if (!player) return `❌ Aucun lecteur actif.`;
+    await executeHA(player.id, "volume_set", { volume_level: val / 100 });
+    const bar = "█".repeat(Math.round(val / 10)) + "░".repeat(10 - Math.round(val / 10));
+    return `🔊 Volume → **${val}%** ${bar}\n_Sur **${player.name || player.id}**._`;
+  },
+
+  sourdine: async () => {
+    const player = await getActivePlayer();
+    if (!player) return `❌ Aucun lecteur actif.`;
+    const cur = player.attributes?.is_volume_muted ?? false;
+    await executeHA(player.id, "volume_mute", { is_volume_muted: !cur });
+    return `${!cur ? "🔇" : "🔊"} Sourdine **${!cur ? "activée" : "désactivée"}** sur **${player.name || player.id}**.`;
+  },
+
+  sondage: async (msg, args) => {
+    const question = args.join(" ").trim();
+    if (!question) return `❌ Usage : \`${PREFIX}sondage <question>\`\nEx : \`${PREFIX}sondage Lumières éteintes à 23h ?\``;
+    const sent = await (msg.channel as any).send(
+      `📊 **Sondage de ${msg.author.username}**\n\n**${question}**\n\n👍 Pour · 👎 Contre · 🤷 Sans avis`
+    );
+    await sent.react("👍");
+    await sent.react("👎");
+    await sent.react("🤷");
+    return null; // pas de reply — le message du sondage suffit
+  },
+
+  calculer: async (msg, args) => {
+    const expr = args.join(" ").trim();
+    if (!expr) return `❌ Usage : \`${PREFIX}calculer <expression>\`\nEx : \`${PREFIX}calculer (2 + 3) * 4\``;
+    try {
+      // Sécurité : on n'autorise que des chiffres et opérateurs mathématiques de base
+      const safe = expr.replace(/[^0-9+\-*/().,% ]/g, "");
+      if (!safe || safe !== expr.replace(/\s/g, "").replace(/[0-9+\-*/().,% ]/g, "").length ? false : true) {
+        // eslint-disable-next-line no-new-func
+        const result = Function(`"use strict"; return (${safe})`)();
+        if (!Number.isFinite(result)) return `❌ Résultat invalide (division par zéro ?).`;
+        return `🧮 \`${expr}\` = **${result}**`;
+      }
+    } catch {}
+    return `❌ Expression invalide : \`${expr}\`\n_J'accepte uniquement +  −  ×  ÷  ( )_`;
+  },
+
+  serveur: async (msg) => {
+    const g = msg.guild;
+    if (!g) return `❌ Cette commande n'est disponible que dans un serveur.`;
+    const created = g.createdAt.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+    const owner = await g.fetchOwner().catch(() => null);
+    return [
+      `🏰 **${g.name}**`,
+      ``,
+      `👤 Propriétaire : ${owner?.user.username ?? "?"}`,
+      `👥 Membres : **${g.memberCount}**`,
+      `💬 Salons : **${g.channels.cache.size}**`,
+      `📅 Créé le : ${created}`,
+      `🆔 ID : \`${g.id}\``,
+      `🌍 Région : ${(g as any).preferredLocale ?? "?"}`,
+    ].join("\n");
+  },
+
+  utilisateur: async (msg, args) => {
+    const mentioned = msg.mentions.users.first();
+    const target = mentioned ?? msg.author;
+    const member = msg.guild?.members.cache.get(target.id);
+    const joined = member?.joinedAt?.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }) ?? "?";
+    const created = target.createdAt.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+    const roles = member?.roles.cache.filter(r => r.name !== "@everyone").map(r => `\`${r.name}\``).join(", ") || "Aucun";
+    return [
+      `👤 **${target.username}**${target.bot ? " 🤖" : ""}`,
+      ``,
+      `🆔 ID : \`${target.id}\``,
+      `📅 Inscrit sur Discord : ${created}`,
+      `📥 A rejoint ce serveur : ${joined}`,
+      `🎭 Rôles : ${roles}`,
+      `📡 Statut : ${member?.presence?.status ?? "invisible"}`,
+    ].join("\n");
+  },
+
+  rappel: async (msg, args) => {
+    // Usage: .rappel 5m Éteindre le four
+    const durStr = args[0]?.toLowerCase();
+    if (!durStr) return `❌ Usage : \`${PREFIX}rappel <durée> <message>\`\nEx : \`${PREFIX}rappel 10m Éteindre le four\``;
+    const match = durStr.match(/^(\d+)(s|m|h)$/);
+    if (!match) return `❌ Durée invalide : \`${durStr}\`. Utilise \`30s\`, \`5m\`, \`2h\`.`;
+    const [, n, unit] = match;
+    const ms = parseInt(n) * ({ s: 1000, m: 60000, h: 3600000 } as any)[unit];
+    if (ms > 24 * 3600000) return `❌ Maximum 24h par rappel. On n'est pas une agenda IA... enfin pas encore.`;
+    const message = args.slice(1).join(" ") || "Rappel sans message — tu sais ce que tu faisais.";
+    const label = `${n}${unit === "s" ? " seconde(s)" : unit === "m" ? " minute(s)" : " heure(s)"}`;
+    setTimeout(async () => {
+      try { await msg.reply(`⏰ **Rappel !** ${msg.author} → _${message}_`); } catch {}
+    }, ms);
+    return `✅ Rappel dans **${label}** : _${message}_\n_Je ne dors pas. Je t'attendrai._`;
+  },
+
+  nexus: async () => {
+    const ha = store.getHaConfig();
+    const devices = store.getDevices();
+    const on = devices.filter((d: any) => d.state === "on" || d.state === "playing" || d.state === "open").length;
+    const cfg = store.getDiscordConfig();
+    const hosts = getHosts();
+    return [
+      `🖥️ **Panel NEXUS** — Rapport rapide`,
+      ``,
+      `🏠 Home Assistant : ${ha.isConnected ? `✅ Connecté (${ha.url?.replace(/https?:\/\//, "")})` : "❌ Non connecté"}`,
+      `💡 Appareils actifs : **${on} / ${devices.length}**`,
+      `🤖 Bot Discord : ${cfg.status === "online" ? `✅ ${cfg.botName}` : "❌ Hors ligne"}`,
+      `🖥️ Systèmes surveillés : **${hosts.length}**`,
+      `⏰ Heure serveur : **${new Date().toLocaleTimeString("fr-FR")}**`,
+    ].join("\n");
   },
 };
 

@@ -292,6 +292,9 @@ export default function App() {
   const [password, setPassword] = useState(() => localStorage.getItem("nexus_password") || "260209");
   const [email,    setEmail]    = useState(() => localStorage.getItem("nexus_email")    || "mathieu@nexus.local");
 
+  // Spotify track for lock screen — polled when locked
+  const [lockTrack, setLockTrack] = useState<{ title: string; artist: string; playing: boolean; img?: string } | null>(null);
+
   // Keep profile in sync across settings page changes
   useEffect(() => {
     const onUpdate = () => {
@@ -302,6 +305,21 @@ export default function App() {
     window.addEventListener("nexus-profile-update", onUpdate);
     return () => window.removeEventListener("nexus-profile-update", onUpdate);
   }, []);
+
+  // Poll HA when locked to show what's playing on the lock screen
+  useEffect(() => {
+    if (!isLocked) { setLockTrack(null); return; }
+    const poll = async () => {
+      try {
+        const devs = await fetch("/api/home-assistant/devices").then(r => r.json());
+        const mp = devs?.find((d: any) => d.type === "media_player" && d.state === "playing");
+        setLockTrack(mp ? { title: mp.attributes?.media_title || "Inconnu", artist: mp.attributes?.media_artist || "", playing: true, img: mp.attributes?.entity_picture || mp.attributes?.media_image_url || "" } : null);
+      } catch {}
+    };
+    poll();
+    const id = setInterval(poll, 10000);
+    return () => clearInterval(id);
+  }, [isLocked]);
 
   if (showSplash) {
     return (
@@ -337,6 +355,7 @@ export default function App() {
             password={password}
             onUnlock={() => setIsLocked(false)}
             onLogout={() => { setIsLoggedIn(false); setIsLocked(false); }}
+            spotifyTrack={lockTrack}
           />
         )}
       </AnimatePresence>

@@ -80,6 +80,18 @@ app.delete("/api/hosts/:id", (req, res) => {
   }
 });
 
+// API - EXTENDED PROPERTIES (detailed SMART + lscpu for a host — triggered by right-click)
+app.get("/api/system/properties/:hostId", async (req, res) => {
+  try {
+    const { getExtendedProperties } = await import("./server/system");
+    const host = requireHost(req.params.hostId);
+    const props = await getExtendedProperties(host);
+    res.json(props);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // API - ACTIVITY LOG (persistent journal of actions taken on the panel)
 app.get("/api/activity", (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 100, 2000);
