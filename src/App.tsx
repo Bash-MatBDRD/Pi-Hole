@@ -3,11 +3,12 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import { AnimatePresence } from "motion/react";
 import { Eye, EyeOff, Lock, User, AlertTriangle } from "lucide-react";
 
-import Splashscreen from "./components/Splashscreen";
-import LockScreen   from "./components/LockScreen";
+import Splashscreen  from "./components/Splashscreen";
+import LockScreen    from "./components/LockScreen";
 import Sidebar       from "./components/Sidebar";
 import TopBar        from "./components/TopBar";
 import StatusBar     from "./components/StatusBar";
+import ContextMenu   from "./components/ContextMenu";
 
 import Dashboard  from "./pages/Dashboard";
 import Domotique  from "./pages/Domotique";
@@ -243,6 +244,7 @@ function AppLayout({ onLock, onLogout, username }: {
     <div className="flex h-screen overflow-hidden text-white" style={{ background: "#050505" }}>
       <Router>
         <Sidebar onLock={onLock} onLogout={onLogout} spotifyTrack={spotifyTrack} />
+        <ContextMenu onLock={onLock} onLogout={onLogout} />
         <div className="flex flex-1 flex-col overflow-hidden min-w-0">
           <TopBar username={username} onLock={onLock} onLogout={onLogout} haConnected={haConnected} botOnline={botOnline} />
           <main className="flex-1 overflow-y-auto custom-scrollbar">
