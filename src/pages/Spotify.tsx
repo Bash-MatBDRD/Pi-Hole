@@ -30,7 +30,6 @@ export default function Spotify() {
   const [firestickOn, setFirestickOn] = useState(true);
   const [loading,     setLoading]     = useState(true);
   const [haConnected, setHaConnected] = useState(false);
-  const [volDrag,     setVolDrag]     = useState(false);
 
   const doFetch = async () => {
     try {

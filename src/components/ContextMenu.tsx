@@ -3,8 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Home, Music, MessageSquare, Server,
   FolderOpen, Settings, Lock, LogOut, RefreshCw, Network,
-  Cloud, StickyNote, Terminal, Copy, Check, ExternalLink,
-  Zap, ChevronRight,
+  Cloud, StickyNote, Terminal, Copy, Check, Zap,
 } from "lucide-react";
 import { getThemeColor } from "../lib/theme";
 
