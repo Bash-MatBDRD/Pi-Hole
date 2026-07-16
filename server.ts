@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket as WsSocket } from "ws";
 import { Client as SshClient } from "ssh2";
 import dotenv from "dotenv";
 import multer from "multer";
+import { WebSocket as WsClientClass } from "ws";
 import { getZimaStats } from "./server/system";
 import { getHosts, requireHost, MAX_CUSTOM_HOSTS } from "./server/hosts";
 import {
@@ -239,6 +240,67 @@ app.post("/api/home-assistant/config", async (req, res) => {
   }
 });
 
+// ── HA WebSocket registry helper ─────────────────────────────────────────────
+// HA 2022+ removed several REST registry endpoints. We fetch area/entity/device
+// registries via the native WebSocket API instead.
+function fetchHARegistriesViaWS(haUrl: string, token: string): Promise<{
+  areaReg: any[] | null; entityReg: any[] | null; deviceReg: any[] | null;
+}> {
+  return new Promise((resolve) => {
+    const empty = { areaReg: null, entityReg: null, deviceReg: null };
+    let done = false;
+    const finish = (val: typeof empty) => {
+      if (done) return; done = true;
+      clearTimeout(timer);
+      try { ws.close(); } catch {}
+      resolve(val);
+    };
+
+    const wsUrl = haUrl.replace(/^http/, "ws") + "/api/websocket";
+    let ws: WsClientClass;
+    try { ws = new WsClientClass(wsUrl, { handshakeTimeout: 8000 }); }
+    catch { return resolve(empty); }
+
+    const timer = setTimeout(() => finish(empty), 14000);
+    const results: typeof empty = { areaReg: null, entityReg: null, deviceReg: null };
+    let pending = 3;
+    const idMap: Record<number, keyof typeof results> = {};
+    let nextId = 1;
+
+    ws.on("error", () => finish(results));
+    ws.on("close", () => finish(results));
+
+    ws.on("message", (raw: Buffer | string) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === "auth_required") {
+          ws.send(JSON.stringify({ type: "auth", access_token: token }));
+        } else if (msg.type === "auth_ok") {
+          const cmds: [keyof typeof results, string][] = [
+            ["areaReg",   "config/area_registry/list"],
+            ["entityReg", "config/entity_registry/list"],
+            ["deviceReg", "config/device_registry/list"],
+          ];
+          for (const [key, type] of cmds) {
+            const id = nextId++;
+            idMap[id] = key;
+            ws.send(JSON.stringify({ id, type }));
+          }
+        } else if (msg.type === "auth_invalid") {
+          finish(results);
+        } else if (msg.type === "result") {
+          const key = idMap[msg.id];
+          if (key) {
+            if (msg.success && Array.isArray(msg.result)) results[key] = msg.result;
+            pending--;
+            if (pending <= 0) finish(results);
+          }
+        }
+      } catch {}
+    });
+  });
+}
+
 // Helper: Sync with real Home Assistant or return fallback
 async function fetchRealHADevices() {
   const haConfig = store.getHaConfig();
@@ -295,17 +357,21 @@ async function fetchRealHADevices() {
 
     const states = await statesRes.json();
 
-    // Fetch registries in parallel with individual timeouts so one failure doesn't block others
+    // Fetch registries via WebSocket first (most reliable in HA 2022+),
+    // then fall back to REST for any registry that WebSocket didn't return.
+    const wsRegs = await fetchHARegistriesViaWS(base, haConfig.token!);
+    console.log(`[HA WS] area=${wsRegs.areaReg?.length ?? "null"} entity=${wsRegs.entityReg?.length ?? "null"} device=${wsRegs.deviceReg?.length ?? "null"}`);
+
     const [deviceReg, entityReg, areaReg] = await Promise.all([
-      fetchRegistryList([
+      wsRegs.deviceReg ? Promise.resolve(wsRegs.deviceReg) : fetchRegistryList([
         "/api/config/device_registry/list",
         "/api/config/device_registry",
       ]),
-      fetchRegistryList([
+      wsRegs.entityReg ? Promise.resolve(wsRegs.entityReg) : fetchRegistryList([
         "/api/config/entity_registry/list",
         "/api/config/entity_registry",
       ]),
-      fetchRegistryList([
+      wsRegs.areaReg ? Promise.resolve(wsRegs.areaReg) : fetchRegistryList([
         "/api/config/area_registry",
         "/api/config/area_registry/list",
       ]),

@@ -134,11 +134,13 @@ async function detectDisk(host: HostRecord): Promise<string> {
 
 async function getDiskTempAndHealth(host: HostRecord): Promise<{ temp: MetricResult<number>; health: MetricResult<string> }> {
   // Detect disk device then run both smartctl queries in a single SSH session.
+  // We append "; exit 0" so that a grep-with-no-results (exit 1) never
+  // causes the whole command to reject — we just get empty output.
   try {
     const disk = await detectDisk(host);
     const out = await run(
       host,
-      `smartctl -A ${disk} 2>/dev/null | grep -i Temperature_Celsius; echo '---'; smartctl -H ${disk} 2>/dev/null | grep -i 'overall-health'`
+      `smartctl -A ${disk} 2>/dev/null | grep -i Temperature_Celsius; echo '---'; smartctl -H ${disk} 2>/dev/null | grep -i 'overall-health'; exit 0`
     );
     const parts = out.split("---");
     const tempLine = (parts[0] || "").trim();
@@ -148,15 +150,19 @@ async function getDiskTempAndHealth(host: HostRecord): Promise<{ temp: MetricRes
     const tempVal = Number(tempCols[9]);
     const temp: MetricResult<number> = Number.isFinite(tempVal)
       ? { available: true, data: tempVal }
-      : { available: false, reason: "smartctl indisponible (droits root requis)" };
+      : { available: false, reason: "smartctl requis (droits root)" };
 
     const health: MetricResult<string> = healthLine
       ? { available: true, data: healthLine.toLowerCase().includes("passed") ? "Bon état" : "Attention" }
-      : { available: false, reason: "smartctl indisponible (droits root requis)" };
+      : { available: false, reason: "smartctl requis (droits root)" };
 
     return { temp, health };
   } catch (err: any) {
-    const reason = err?.message || "smartctl indisponible";
+    // Keep the user-facing message short and clean regardless of the raw error
+    const raw: string = err?.message || "";
+    const reason = raw.includes("smartctl") || raw.includes("command not found")
+      ? "smartctl requis (droits root)"
+      : raw.slice(0, 60) || "Indisponible";
     return {
       temp: { available: false, reason },
       health: { available: false, reason },

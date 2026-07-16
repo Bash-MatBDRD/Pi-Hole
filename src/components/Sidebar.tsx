@@ -3,7 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Home, Music, MessageSquare, Server, FolderOpen,
   Settings, Lock, LogOut, ChevronRight, Pin, PinOff,
-  Cloud, Network, StickyNote, Terminal, Gamepad2,
+  Cloud, Network, StickyNote, Terminal,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { getThemeColor, getLogoStyle, getLetterStyle, getContainerShape, getFontClass } from "../lib/theme";
@@ -36,12 +36,6 @@ const NAV_GROUPS = [
       { to: "/terminal", icon: Terminal,    label: "Terminal SSH" },
       { to: "/reseau",   icon: Network,     label: "Réseau" },
       { to: "/fichiers", icon: FolderOpen,  label: "Fichiers" },
-    ],
-  },
-  {
-    label: "Gaming",
-    items: [
-      { to: "/gaming", icon: Gamepad2, label: "Gaming Hub" },
     ],
   },
   {
