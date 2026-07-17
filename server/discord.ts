@@ -63,25 +63,17 @@ async function fetchLiveDevices(): Promise<any[]> {
   const now = Date.now();
   if (_deviceCache && now - _deviceCache.at < 30_000) return _deviceCache.data;
   const ha = store.getHaConfig();
-  if (ha.isConnected && ha.url && ha.token) {
+  if (ha.isConnected) {
     try {
-      const r = await fetch(`${ha.url.replace(/\/$/, "")}/api/states`, {
-        headers: { Authorization: `Bearer ${ha.token}`, "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(8000),
+      // Use the server's own /api/home-assistant/devices endpoint which already
+      // performs the area-registry lookup (WebSocket + REST fallback) so devices
+      // carry proper room names instead of the hardcoded "Général" fallback.
+      const port = process.env.PORT ?? "5000";
+      const r = await fetch(`http://localhost:${port}/api/home-assistant/devices`, {
+        signal: AbortSignal.timeout(12000),
       });
       if (r.ok) {
-        const states = await r.json();
-        const ALLOWED = ["light", "switch", "cover", "climate", "media_player", "camera"];
-        const data = (states as any[])
-          .filter((s) => ALLOWED.includes(s.entity_id.split(".")[0]))
-          .map((s) => ({
-            id: s.entity_id,
-            name: s.attributes.friendly_name || s.entity_id,
-            type: s.entity_id.split(".")[0],
-            state: s.state,
-            room: "Général",
-            attributes: s.attributes,
-          }));
+        const data = await r.json();
         _deviceCache = { data, at: now };
         return data;
       }
@@ -111,8 +103,16 @@ async function getActivePlayer(): Promise<any | null> {
 }
 
 /** Attends que HA mette à jour l'état puis retourne le titre/artiste de la nouvelle piste.
- *  Sonde jusqu'à 5 fois × 1 s pour détecter un changement de titre. */
-async function getUpdatedTrackInfo(entityId: string, prevTitle?: string): Promise<string> {
+ *  @param maxAttempts  Nombre de sondages avant abandon (défaut 6 = ~9 s)
+ *  @param intervalMs   Intervalle entre sondages en ms (défaut 1500)
+ *  Pour spotify:search: utiliser maxAttempts=10,intervalMs=1500 (~15 s)
+ *  Pour suivant/précédent  utiliser maxAttempts=6,intervalMs=1000  (~6 s) */
+async function getUpdatedTrackInfo(
+  entityId: string,
+  prevTitle?: string,
+  maxAttempts = 6,
+  intervalMs = 1500,
+): Promise<string> {
   const ha = store.getHaConfig();
   if (!ha.url || !ha.token) return "";
   const fetchTitle = async () => {
@@ -123,19 +123,21 @@ async function getUpdatedTrackInfo(entityId: string, prevTitle?: string): Promis
       });
       if (!r.ok) return null;
       const s = await r.json();
-      return { title: s.attributes?.media_title as string | undefined, artist: s.attributes?.media_artist as string | undefined };
+      return {
+        title: s.attributes?.media_title as string | undefined,
+        artist: s.attributes?.media_artist as string | undefined,
+      };
     } catch { return null; }
   };
 
-  // Poll up to 5 times × 1 s until the title changes (or 5 s max)
-  for (let i = 0; i < 5; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise((r) => setTimeout(r, intervalMs));
     const info = await fetchTitle();
     if (!info || !info.title) continue;
-    if (prevTitle && info.title === prevTitle) continue; // not changed yet
+    if (prevTitle && info.title === prevTitle) continue; // still old track
     return `\n\n♪ **Maintenant :** **${info.title}**${info.artist ? ` — *${info.artist}*` : ""}`;
   }
-  // Last chance — return whatever is there regardless of change detection
+  // Last-chance read — return whatever is there even if unchanged
   const info = await fetchTitle();
   if (!info || !info.title) return "";
   return `\n\n♪ **Maintenant :** **${info.title}**${info.artist ? ` — *${info.artist}*` : ""}`;
@@ -651,8 +653,9 @@ const COMMANDS: Record<string, CmdFn> = {
     });
     if (!ok) return `× Impossible de lancer **${query}**.\n_Le lecteur n'a peut-être pas de source Spotify active._`;
     store.addDiscordLog({ timestamp: new Date().toISOString(), user: msg.author.username, command: `${PREFIX}musique ${query}`, response: `Recherche "${query}" sur ${player.name}` });
-    const info = await getUpdatedTrackInfo(player.id, prevTitle);
-    return `Recherche de **${query}** sur **${player.name || player.id}**…${info || "\n_Lecture lancée — la piste arrive !_"}`;
+    // spotify:search: can take up to 10-15 s for HA to resolve + switch track.
+    const info = await getUpdatedTrackInfo(player.id, prevTitle, 10, 1500);
+    return `Recherche de **${query}** sur **${player.name || player.id}**.${info || "\n_La piste arrive — utilisez \`.musique_info\` pour confirmer._"}`;
   },
 
   pause: async () => {
@@ -675,7 +678,8 @@ const COMMANDS: Record<string, CmdFn> = {
     if (!player) return `× Aucun lecteur actif.`;
     const prev = player.attributes?.media_title as string | undefined;
     await executeHA(player.id, "media_next_track");
-    const info = await getUpdatedTrackInfo(player.id, prev);
+    // Skip is fast — poll every 1 s for up to 7 s
+    const info = await getUpdatedTrackInfo(player.id, prev, 7, 1000);
     return `→ Piste suivante sur **${player.name || player.id}**.${info}`;
   },
 
@@ -684,7 +688,7 @@ const COMMANDS: Record<string, CmdFn> = {
     if (!player) return `× Aucun lecteur actif.`;
     const prev = player.attributes?.media_title as string | undefined;
     await executeHA(player.id, "media_previous_track");
-    const info = await getUpdatedTrackInfo(player.id, prev);
+    const info = await getUpdatedTrackInfo(player.id, prev, 7, 1000);
     return `← Piste précédente sur **${player.name || player.id}**.${info}`;
   },
 
