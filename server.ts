@@ -448,6 +448,12 @@ async function fetchRealHADevices() {
             power_w: s.attributes.power ?? s.attributes.current_power_w ?? s.attributes.watt ?? 0,
             // today's energy (kWh)
             today_energy_kwh: s.attributes.today_energy_kwh ?? s.attributes.energy_today ?? 0,
+            // entity_picture: HA returns a relative path — prefix with the HA base URL
+            entity_picture: s.attributes.entity_picture
+              ? (s.attributes.entity_picture.startsWith("http")
+                  ? s.attributes.entity_picture
+                  : `${base}${s.attributes.entity_picture}`)
+              : undefined,
           },
         };
       });

@@ -110,23 +110,35 @@ async function getActivePlayer(): Promise<any | null> {
     || null;
 }
 
-/** Attends 2 s que HA mette à jour l'état puis retourne le titre/artiste de la nouvelle piste. */
-async function getUpdatedTrackInfo(entityId: string): Promise<string> {
-  await new Promise((r) => setTimeout(r, 2000));
-  try {
-    const ha = store.getHaConfig();
-    if (!ha.url || !ha.token) return "";
-    const r = await fetch(`${ha.url.replace(/\/$/, "")}/api/states/${entityId}`, {
-      headers: { Authorization: `Bearer ${ha.token}` },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!r.ok) return "";
-    const state = await r.json();
-    const title = state.attributes?.media_title;
-    const artist = state.attributes?.media_artist;
-    if (!title) return "";
-    return `\n\n🎵 **Maintenant :** **${title}**${artist ? ` — *${artist}*` : ""}`;
-  } catch { return ""; }
+/** Attends que HA mette à jour l'état puis retourne le titre/artiste de la nouvelle piste.
+ *  Sonde jusqu'à 5 fois × 1 s pour détecter un changement de titre. */
+async function getUpdatedTrackInfo(entityId: string, prevTitle?: string): Promise<string> {
+  const ha = store.getHaConfig();
+  if (!ha.url || !ha.token) return "";
+  const fetchTitle = async () => {
+    try {
+      const r = await fetch(`${ha.url!.replace(/\/$/, "")}/api/states/${entityId}`, {
+        headers: { Authorization: `Bearer ${ha.token}` },
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!r.ok) return null;
+      const s = await r.json();
+      return { title: s.attributes?.media_title as string | undefined, artist: s.attributes?.media_artist as string | undefined };
+    } catch { return null; }
+  };
+
+  // Poll up to 5 times × 1 s until the title changes (or 5 s max)
+  for (let i = 0; i < 5; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    const info = await fetchTitle();
+    if (!info || !info.title) continue;
+    if (prevTitle && info.title === prevTitle) continue; // not changed yet
+    return `\n\n🎵 **Maintenant :** **${info.title}**${info.artist ? ` — *${info.artist}*` : ""}`;
+  }
+  // Last chance — return whatever is there regardless of change detection
+  const info = await fetchTitle();
+  if (!info || !info.title) return "";
+  return `\n\n🎵 **Maintenant :** **${info.title}**${info.artist ? ` — *${info.artist}*` : ""}`;
 }
 
 function stateEmoji(d: any): string {
@@ -304,10 +316,11 @@ const COMMANDS: Record<string, CmdFn> = {
   ping: async () => {
     const ms = client ? Math.max(0, client.ws.ping) : 0;
     const bar = "█".repeat(Math.min(10, Math.round(ms / 20))).padEnd(10, "░");
-    const qual = ms < 80 ? "🟢 Excellent" : ms < 150 ? "🟡 Correct" : "🔴 Élevé";
-    const quip = ms < 50 ? " _(On pourrait dire que je suis rapide. On peut le dire.)_"
-      : ms < 150 ? "" : " _(Quelqu'un a oublié de payer la fibre ?)_";
-    return `🏓 **Pong !**\n\`${bar}\` **${ms}ms** — ${qual}${quip}`;
+    const qual = ms < 80 ? "🟢 Excellent" : ms < 200 ? "🟡 Correct" : "🔴 Élevé";
+    const note = ms > 80
+      ? `\n_Note : latence Replit → Discord (hébergement cloud, 100-200 ms est normal)._`
+      : ` _(On pourrait dire que je suis rapide. On peut le dire.)_`;
+    return `🏓 **Pong !**\n\`${bar}\` **${ms}ms** — ${qual}${note}`;
   },
 
   status: async () => {
@@ -354,57 +367,49 @@ const COMMANDS: Record<string, CmdFn> = {
     return `⏱️ ${pick(quips)}`;
   },
 
-  aide: async () => [
-    `📋 **Commandes NexusBot** — Préfixe \`${PREFIX}\``,
-    ``,
-    `**📡 Informations**`,
-    `\`${PREFIX}ping\`                          Latence WebSocket`,
-    `\`${PREFIX}status\`                        Rapport complet du panel`,
-    `\`${PREFIX}ha\`                            Résumé Home Assistant`,
-    `\`${PREFIX}uptime\`                        Temps de fonctionnement`,
-    `\`${PREFIX}temp\`                          Températures ZimaOS _(interactif)_`,
-    `\`${PREFIX}nexus\`                         Rapport rapide du panel`,
-    ``,
-    `**💡 Appareils** _(live depuis HA si connecté)_`,
-    `\`${PREFIX}appareils\`                     Liste tous les appareils par pièce`,
-    `\`${PREFIX}appareil <nom>\`                Fiche détaillée d'un appareil`,
-    `\`${PREFIX}allumer <nom>\`                 Allume / ouvre un appareil`,
-    `\`${PREFIX}eteindre <nom>\`                Éteint / ferme un appareil`,
-    `\`${PREFIX}luminosite <nom> <0-100>\`      Luminosité d'une lumière`,
-    `\`${PREFIX}volet <nom> <ouvert|ferme|%>\`  Contrôle un volet`,
-    `\`${PREFIX}ajouter\`                       Ajoute un appareil _(interactif)_`,
-    `\`${PREFIX}supprimer <nom>\`               Supprime un appareil fictif`,
-    ``,
-    `**🎵 Musique** _(lecteur actif, sans changer d'appareil)_`,
-    `\`${PREFIX}musique <titre>\`               Recherche + joue → affiche la nouvelle piste`,
-    `\`${PREFIX}pause\`                         Met en pause`,
-    `\`${PREFIX}reprendre\`                     Reprend la lecture`,
-    `\`${PREFIX}suivant\`                       Piste suivante → affiche le nouveau titre`,
-    `\`${PREFIX}precedent\`                    Piste précédente → affiche le nouveau titre`,
-    `\`${PREFIX}volume <0-100>\`                Règle le volume`,
-    `\`${PREFIX}sourdine\`                      Active / désactive la sourdine`,
-    `\`${PREFIX}shuffle\`                       Active / désactive l'aléatoire`,
-    `\`${PREFIX}boucle\`                        Cycle répétition (off → tout → ×1)`,
-    `\`${PREFIX}liker\`                         Affiche la musique en cours (like panel)`,
-    `\`${PREFIX}musique_info\`                  Infos complètes de la lecture`,
-    ``,
-    `**🛠️ Utilitaires**`,
-    `\`${PREFIX}sondage <question>\`            Crée un sondage 👍/👎/🤷`,
-    `\`${PREFIX}calculer <expression>\`         Calculatrice (+  −  ×  ÷  )`,
-    `\`${PREFIX}rappel <durée> <message>\`      Rappel différé (ex: \`.rappel 10m Four\`)`,
-    `\`${PREFIX}serveur\`                       Infos sur le serveur Discord`,
-    `\`${PREFIX}utilisateur [@mention]\`        Infos sur un utilisateur`,
-    ``,
-    `**🎉 Fun & Personnalité**`,
-    `\`${PREFIX}bonjour\`                       Salutation personnalisée`,
-    `\`${PREFIX}humeur\`                        Mon humeur du moment`,
-    `\`${PREFIX}blague\`                        Une blague tech/domotique`,
-    `\`${PREFIX}8ball <question>\`              La boule magique répond`,
-    `\`${PREFIX}de [NdF]\`                      Lance des dés (ex: \`.de 2d6\`)`,
-    `\`${PREFIX}conseil\`                       Conseil domotique du jour`,
-    `\`${PREFIX}citation\`                      Citation inspirante`,
-    `\`${PREFIX}aide\`                          Cette liste`,
-  ].join("\n"),
+  // aide is split into 2 messages to stay under Discord's 2000-char limit
+  aide: async (msg) => {
+    const part1 = [
+      `📋 **Commandes NexusBot** — Préfixe \`${PREFIX}\` _(1/2)_`,
+      ``,
+      `**📡 Informations**`,
+      `\`${PREFIX}ping\`  Latence WebSocket · \`${PREFIX}status\`  Rapport complet`,
+      `\`${PREFIX}ha\`  Résumé Home Assistant · \`${PREFIX}uptime\`  Temps de fonctionnement`,
+      `\`${PREFIX}temp\`  Températures ZimaOS _(interactif)_ · \`${PREFIX}nexus\`  Rapport rapide`,
+      ``,
+      `**💡 Appareils** _(live depuis HA si connecté)_`,
+      `\`${PREFIX}appareils\`  Liste par pièce · \`${PREFIX}appareil <nom>\`  Fiche détaillée`,
+      `\`${PREFIX}allumer <nom>\` · \`${PREFIX}eteindre <nom>\``,
+      `\`${PREFIX}luminosite <nom> <0-100>\` · \`${PREFIX}volet <nom> <ouvert|ferme|%>\``,
+      `\`${PREFIX}ajouter\` _(interactif)_ · \`${PREFIX}supprimer <nom>\``,
+      ``,
+      `**🎵 Musique** _(lecteur Spotify actif requis)_`,
+      `\`${PREFIX}musique <titre>\`  Recherche + joue (ex: \`.musique SOLEIL a6el\`)`,
+      `\`${PREFIX}pause\` · \`${PREFIX}reprendre\` · \`${PREFIX}suivant\` · \`${PREFIX}precedent\``,
+      `\`${PREFIX}volume <0-100>\` · \`${PREFIX}sourdine\` · \`${PREFIX}shuffle\` · \`${PREFIX}boucle\``,
+      `\`${PREFIX}liker\`  Piste en cours · \`${PREFIX}musique_info\`  Infos complètes`,
+    ].join("\n");
+
+    const part2 = [
+      `📋 **Commandes NexusBot** _(2/2)_`,
+      ``,
+      `**🛠️ Utilitaires**`,
+      `\`${PREFIX}sondage <question>\`  Crée un sondage 👍/👎/🤷`,
+      `\`${PREFIX}calculer <expression>\`  Calculatrice (ex: \`.calculer 3*8+2\`)`,
+      `\`${PREFIX}rappel <durée> <message>\`  Rappel différé (ex: \`.rappel 10m Four\`)`,
+      `\`${PREFIX}serveur\`  Infos sur le serveur Discord`,
+      `\`${PREFIX}utilisateur [@mention]\`  Infos sur un utilisateur`,
+      ``,
+      `**🎉 Fun & Personnalité**`,
+      `\`${PREFIX}bonjour\` · \`${PREFIX}humeur\` · \`${PREFIX}blague\``,
+      `\`${PREFIX}8ball <question>\` · \`${PREFIX}de [NdF]\` _(ex: \`.de 2d6\`)_`,
+      `\`${PREFIX}conseil\` · \`${PREFIX}citation\` · \`${PREFIX}aide\``,
+    ].join("\n");
+
+    await msg.reply(part1);
+    await msg.channel.send(part2);
+    return null; // already sent
+  },
 
   // ── ZimaOS – températures (interactif) ─────────────────────────────────────
 
@@ -632,18 +637,20 @@ const COMMANDS: Record<string, CmdFn> = {
 
   musique: async (msg, args) => {
     const query = args.join(" ").trim();
-    if (!query) return `❌ Usage : \`${PREFIX}musique <titre ou artiste>\`\nEx : \`${PREFIX}musique Alonzo Santana\``;
+    if (!query) return `❌ Usage : \`${PREFIX}musique <titre ou artiste>\`\nEx : \`${PREFIX}musique SOLEIL a6el\``;
     const player = await getActivePlayer();
     if (!player) return `❌ Aucun lecteur actif trouvé.\n_Lance une musique depuis Spotify d'abord, je ferai le reste._`;
     const ha = store.getHaConfig();
     if (!ha.isConnected) return `❌ Home Assistant non connecté — impossible de lancer la musique.`;
+    const prevTitle = player.attributes?.media_title as string | undefined;
+    // Use spotify:search: URI format so HA's Spotify integration resolves the query
     const { ok } = await executeHA(player.id, "play_media", {
       media_content_type: "music",
-      media_content_id: query,
+      media_content_id: `spotify:search:${query}`,
     });
     if (!ok) return `❌ Impossible de lancer **${query}**.\n_Le lecteur n'a peut-être pas de source Spotify active._`;
-    store.addDiscordLog({ timestamp: new Date().toISOString(), user: msg.author.username, command: `${PREFIX}musique ${query}`, response: `▶️ Lecture de "${query}" sur ${player.name}` });
-    const info = await getUpdatedTrackInfo(player.id);
+    store.addDiscordLog({ timestamp: new Date().toISOString(), user: msg.author.username, command: `${PREFIX}musique ${query}`, response: `▶️ Recherche "${query}" sur ${player.name}` });
+    const info = await getUpdatedTrackInfo(player.id, prevTitle);
     return `🎵 Recherche de **${query}** sur **${player.name || player.id}**…${info || "\n_Lecture lancée — la piste arrive !_"}`;
   },
 
@@ -665,16 +672,18 @@ const COMMANDS: Record<string, CmdFn> = {
   suivant: async () => {
     const player = await getActivePlayer();
     if (!player) return `❌ Aucun lecteur actif.`;
+    const prev = player.attributes?.media_title as string | undefined;
     await executeHA(player.id, "media_next_track");
-    const info = await getUpdatedTrackInfo(player.id);
+    const info = await getUpdatedTrackInfo(player.id, prev);
     return `⏭ Piste suivante sur **${player.name || player.id}**.${info}`;
   },
 
   precedent: async () => {
     const player = await getActivePlayer();
     if (!player) return `❌ Aucun lecteur actif.`;
+    const prev = player.attributes?.media_title as string | undefined;
     await executeHA(player.id, "media_previous_track");
-    const info = await getUpdatedTrackInfo(player.id);
+    const info = await getUpdatedTrackInfo(player.id, prev);
     return `⏮ Piste précédente sur **${player.name || player.id}**.${info}`;
   },
 
@@ -963,7 +972,8 @@ export async function startDiscordBot(): Promise<void> {
     commandsHandled++;
     try {
       const response = await handler(msg, args);
-      if (response) {
+      // null means the handler sent its own reply (e.g. .aide splits into 2 messages)
+      if (response != null) {
         await msg.reply(response);
         if (!["allumer","eteindre","luminosite","volet","ajouter","supprimer"].includes(cmdName)) {
           store.addDiscordLog({

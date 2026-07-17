@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Music, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
   RefreshCw, Tv, Power, Home as HomeIcon, AlertCircle, Wifi, WifiOff,
@@ -54,10 +54,21 @@ export default function Spotify() {
     finally { setLoading(false); }
   };
 
+  // Rapid burst: poll every 1 s for 6 s after a command to catch state changes fast
+  const rapidPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const triggerRapidPoll = () => {
+    if (rapidPollRef.current) clearInterval(rapidPollRef.current);
+    let ticks = 0;
+    rapidPollRef.current = setInterval(async () => {
+      await doFetch();
+      if (++ticks >= 6) { clearInterval(rapidPollRef.current!); rapidPollRef.current = null; }
+    }, 1000);
+  };
+
   useEffect(() => {
     doFetch();
-    const id = setInterval(doFetch, 5000);
-    return () => clearInterval(id);
+    const id = setInterval(doFetch, 3000);
+    return () => { clearInterval(id); if (rapidPollRef.current) clearInterval(rapidPollRef.current); };
   }, []);
 
   const mediaPlayers = devices.filter(d => d.type === "media_player");
@@ -97,7 +108,7 @@ export default function Spotify() {
     if (!activePlayer) return;
     try {
       await axios.post("/api/home-assistant/command", { entity_id: activePlayer.id, service, data });
-      await doFetch();
+      triggerRapidPoll(); // poll every 1 s for 6 s to catch the state change fast
     } catch {}
   };
 
