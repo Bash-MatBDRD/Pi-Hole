@@ -103,15 +103,18 @@ async function getActivePlayer(): Promise<any | null> {
 }
 
 /** Attends que HA mette à jour l'état puis retourne le titre/artiste de la nouvelle piste.
- *  @param maxAttempts  Nombre de sondages avant abandon (défaut 6 = ~9 s)
- *  @param intervalMs   Intervalle entre sondages en ms (défaut 1500)
- *  Pour spotify:search: utiliser maxAttempts=10,intervalMs=1500 (~15 s)
- *  Pour suivant/précédent  utiliser maxAttempts=6,intervalMs=1000  (~6 s) */
+ *  @param maxAttempts    Nombre de sondages avant abandon (défaut 6 = ~9 s)
+ *  @param intervalMs     Intervalle entre sondages en ms (défaut 1500)
+ *  @param initialDelayMs Délai initial avant le premier sondage (ms). Utile pour Spotify
+ *                        qui met 1-2 s à mettre à jour son état après un skip.
+ *  Pour spotify:search:  utiliser maxAttempts=10, intervalMs=1500 (~15 s)
+ *  Pour suivant/précédent utiliser initialDelayMs=1500, maxAttempts=12, intervalMs=1200 (~16 s) */
 async function getUpdatedTrackInfo(
   entityId: string,
   prevTitle?: string,
   maxAttempts = 6,
   intervalMs = 1500,
+  initialDelayMs = 0,
 ): Promise<string> {
   const ha = store.getHaConfig();
   if (!ha.url || !ha.token) return "";
@@ -130,6 +133,7 @@ async function getUpdatedTrackInfo(
     } catch { return null; }
   };
 
+  if (initialDelayMs > 0) await new Promise((r) => setTimeout(r, initialDelayMs));
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((r) => setTimeout(r, intervalMs));
     const info = await fetchTitle();
@@ -678,8 +682,8 @@ const COMMANDS: Record<string, CmdFn> = {
     if (!player) return `× Aucun lecteur actif.`;
     const prev = player.attributes?.media_title as string | undefined;
     await executeHA(player.id, "media_next_track");
-    // Skip is fast — poll every 1 s for up to 7 s
-    const info = await getUpdatedTrackInfo(player.id, prev, 7, 1000);
+    // Spotify via HA can take 1-2 s to update state — wait before polling
+    const info = await getUpdatedTrackInfo(player.id, prev, 12, 1200, 1500);
     return `→ Piste suivante sur **${player.name || player.id}**.${info}`;
   },
 
@@ -688,7 +692,7 @@ const COMMANDS: Record<string, CmdFn> = {
     if (!player) return `× Aucun lecteur actif.`;
     const prev = player.attributes?.media_title as string | undefined;
     await executeHA(player.id, "media_previous_track");
-    const info = await getUpdatedTrackInfo(player.id, prev, 7, 1000);
+    const info = await getUpdatedTrackInfo(player.id, prev, 12, 1200, 1500);
     return `← Piste précédente sur **${player.name || player.id}**.${info}`;
   },
 

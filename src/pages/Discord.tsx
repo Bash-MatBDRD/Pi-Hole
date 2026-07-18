@@ -15,7 +15,7 @@ const NEXUSBOT_ABOUT = {
   howItWorks: `Le bot tourne en continu dans le même processus que le panel (server.ts). Il se connecte à Discord via l'API officielle (discord.js) avec votre token, écoute les messages qui commencent par le préfixe "." et exécute les commandes. Chaque action est enregistrée dans le journal d'activité et visible ici en temps réel.`,
   commands: [
     {
-      category: "📡 Informations",
+      category: "Informations",
       color: "#6366f1",
       items: [
         { cmd: ".ping",    desc: "Latence WebSocket avec indicateur de qualité" },
@@ -26,7 +26,7 @@ const NEXUSBOT_ABOUT = {
       ],
     },
     {
-      category: "💡 Appareils",
+      category: "Appareils",
       color: "#22c55e",
       items: [
         { cmd: ".appareils",          desc: "Liste tous les appareils groupés par pièce" },
@@ -40,7 +40,7 @@ const NEXUSBOT_ABOUT = {
       ],
     },
     {
-      category: "🎉 Fun & Personnalité",
+      category: "Fun & Personnalité",
       color: "#f59e0b",
       items: [
         { cmd: ".bonjour",         desc: "Salutation personnalisée selon l'heure" },
@@ -83,7 +83,7 @@ export default function Discord() {
     if (!input.trim() || sending) return;
     setSending(true);
     try {
-      await axios.post("/api/discord/logs", { user: "Dashboard", command: input, response: `💬 Entrée manuelle : ${input}` });
+      await axios.post("/api/discord/logs", { user: "Dashboard", command: input, response: `Entrée manuelle : ${input}` });
       setInput("");
       await fetchAll();
     } catch { } finally { setSending(false); }

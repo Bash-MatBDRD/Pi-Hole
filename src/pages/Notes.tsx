@@ -185,7 +185,6 @@ export default function Notes() {
                     ) : (
                       <p className="text-xs font-bold truncate" style={{ color: col.text }}>
                         {note.title || "Sans titre"}
-                        {note.pinned && <span className="ml-1 opacity-60">📌</span>}
                       </p>
                     )}
                   </div>

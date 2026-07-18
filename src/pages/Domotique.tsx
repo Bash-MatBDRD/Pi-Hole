@@ -4,7 +4,8 @@ import {
   RefreshCw, Wifi, WifiOff, Settings, Play, Pause,
   SkipForward, Volume2, Sun, Moon,
   AlertTriangle, Maximize2, ChevronLeft, ChevronRight,
-  Layers,
+  Layers, Sofa, UtensilsCrossed, Waves, Droplets, Shirt, BedDouble,
+  Leaf, DoorOpen, Car, Laptop, Package, Flame, Snowflake,
 } from "lucide-react";
 import axios from "axios";
 
@@ -14,20 +15,20 @@ interface Device {
 interface HAConfig { url: string; token: string; isConnected: boolean; }
 
 // ── Room metadata ─────────────────────────────────────────────────────────────
-function roomIcon(room: string) {
+function roomIcon(room: string): React.ElementType {
   const r = room.toLowerCase();
-  if (r.includes("salon") || r.includes("living"))                      return "🛋";
-  if (r.includes("cuisine") || r.includes("kitchen"))                   return "🍳";
-  if (r.includes("salle de bain") || r.includes("bathroom"))            return "🚿";
-  if (r.includes("toilette") || r.includes("wc"))                       return "🚽";
-  if (r.includes("dressing"))                                            return "👗";
-  if (r.includes("chambre") || r.includes("bedroom"))                   return "🛏";
-  if (r.includes("jardin") || r.includes("extérieur") || r.includes("outdoor")) return "🌿";
-  if (r.includes("couloir") || r.includes("hall") || r.includes("entrée")) return "🚪";
-  if (r.includes("garage"))                                              return "🚗";
-  if (r.includes("bureau") || r.includes("office"))                     return "💻";
-  if (r.includes("général") || r.includes("general"))                   return "🏠";
-  return "📦";
+  if (r.includes("salon") || r.includes("living"))                        return Sofa;
+  if (r.includes("cuisine") || r.includes("kitchen"))                     return UtensilsCrossed;
+  if (r.includes("salle de bain") || r.includes("bathroom"))              return Waves;
+  if (r.includes("toilette") || r.includes("wc"))                         return Droplets;
+  if (r.includes("dressing"))                                              return Shirt;
+  if (r.includes("chambre") || r.includes("bedroom"))                     return BedDouble;
+  if (r.includes("jardin") || r.includes("extérieur") || r.includes("outdoor")) return Leaf;
+  if (r.includes("couloir") || r.includes("hall") || r.includes("entrée")) return DoorOpen;
+  if (r.includes("garage"))                                                return Car;
+  if (r.includes("bureau") || r.includes("office"))                       return Laptop;
+  if (r.includes("général") || r.includes("general"))                     return Home;
+  return Package;
 }
 
 function roomColor(room: string) {
@@ -111,7 +112,7 @@ function LightCard({ device, onCommand }: { device: Device; onCommand: (id: stri
                   border: `1px solid ${device.attributes?.color_temp === t ? accent + "40" : "rgba(255,255,255,0.06)"}`,
                   color: device.attributes?.color_temp === t ? accent : "#6b7280",
                 }}>
-                {i === 0 ? "🔥" : i === 1 ? "☀" : "❄"}
+                {i === 0 ? <Flame className="h-2.5 w-2.5 mx-auto" /> : i === 1 ? <Sun className="h-2.5 w-2.5 mx-auto" /> : <Snowflake className="h-2.5 w-2.5 mx-auto" />}
               </button>
             ))}
           </div>
@@ -172,7 +173,7 @@ function ClimateCard({ device, onCommand }: { device: Device; onCommand: (id: st
         <div>
           <p className="text-xs font-bold text-white">{device.name}</p>
           <div className={`mt-1 px-2 py-0.5 rounded-full text-[9px] font-semibold inline-block ${isHeating ? "bg-orange-500/15 text-orange-400" : "bg-gray-800 text-gray-500"}`}>
-            {isHeating ? "🔥 Chauffe" : "En veille"}
+            {isHeating ? <span className="flex items-center gap-1"><Flame className="h-2.5 w-2.5" />Chauffe</span> : "En veille"}
           </div>
         </div>
         <div className="relative w-16 h-16 flex-shrink-0">
@@ -244,7 +245,7 @@ function getMediaBrand(device: Device): { color: string; label: string; icon: st
     return { color: "#4285F4", label: "Chromecast", icon: "G" };
   if (id.includes("apple") || id.includes("airplay"))
     return { color: "#999999", label: "Apple", icon: "A" };
-  return { color: "#a855f7", label: "Lecteur", icon: "♪" };
+  return { color: "#a855f7", label: "Lecteur", icon: "M" };
 }
 
 function MediaCard({ device, onCommand }: { device: Device; onCommand: (id: string, svc: string, d?: any) => Promise<void> }) {
@@ -397,7 +398,7 @@ function DeviceCard({ device, onCommand, haConnected }: { device: Device; onComm
 // ── Room Card (main grid view) ────────────────────────────────────────────────
 function RoomCard({ name, devices, onClick }: { name: string; devices: Device[]; onClick: () => void }) {
   const c = roomColor(name);
-  const icon = roomIcon(name);
+  const RoomIcon = roomIcon(name);
   const activeDevices = devices.filter(d => d.state === "on" || d.state === "open" || d.state === "playing" || d.state === "heat");
 
   // Count by type
@@ -415,7 +416,9 @@ function RoomCard({ name, devices, onClick }: { name: string; devices: Device[];
       style={{ background: c.bg, border: `1px solid ${c.border}` }}>
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="text-2xl">{icon}</div>
+          <div className="p-2 rounded-xl" style={{ background: `${c.main}15` }}>
+            <RoomIcon className="h-5 w-5" style={{ color: c.main }} />
+          </div>
           <div>
             <p className="text-sm font-bold text-white">{name}</p>
             <p className="text-[10px] mt-0.5" style={{ color: c.main }}>
@@ -471,7 +474,7 @@ function RoomDetail({
   haConnected: boolean;
 }) {
   const c = roomColor(name);
-  const icon = roomIcon(name);
+  const RoomIcon = roomIcon(name);
 
   // Group devices by type
   const byType: Record<string, Device[]> = {};
@@ -499,7 +502,9 @@ function RoomDetail({
           <ChevronLeft className="h-4 w-4" /> Retour
         </button>
         <div className="flex items-center gap-3 flex-1">
-          <span className="text-2xl">{icon}</span>
+          <div className="p-2 rounded-xl" style={{ background: `${c.main}15` }}>
+            <RoomIcon className="h-5 w-5" style={{ color: c.main }} />
+          </div>
           <div>
             <h1 className="text-xl font-black text-white">{name}</h1>
             <p className="text-xs mt-0.5" style={{ color: c.main }}>

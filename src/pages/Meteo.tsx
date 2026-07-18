@@ -1,27 +1,30 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Cloud, RefreshCw, Search, MapPin, Wind, Droplets, Thermometer, Eye } from "lucide-react";
+import {
+  Cloud, RefreshCw, Search, MapPin, Wind, Droplets, Thermometer, Eye,
+  Sun, CloudSun, CloudFog, CloudDrizzle, CloudRain, Snowflake, CloudSnow, CloudLightning,
+} from "lucide-react";
 import axios from "axios";
 
 // ── WMO weather codes → FR ────────────────────────────────────────────────────
-function wx(code: number): { emoji: string; label: string } {
-  if (code === 0)                 return { emoji: "☀️",  label: "Ciel dégagé" };
-  if (code === 1)                 return { emoji: "🌤️",  label: "Peu nuageux" };
-  if (code === 2)                 return { emoji: "⛅",  label: "Partiellement nuageux" };
-  if (code === 3)                 return { emoji: "☁️",  label: "Couvert" };
-  if (code === 45 || code === 48) return { emoji: "🌫️",  label: "Brouillard" };
-  if (code >= 51 && code <= 55)  return { emoji: "🌦️",  label: "Bruine" };
-  if (code >= 56 && code <= 57)  return { emoji: "🌧️",  label: "Bruine verglaçante" };
-  if (code >= 61 && code <= 63)  return { emoji: "🌧️",  label: "Pluie" };
-  if (code === 65)               return { emoji: "🌧️",  label: "Pluie forte" };
-  if (code >= 66 && code <= 67)  return { emoji: "🌧️",  label: "Pluie verglaçante" };
-  if (code >= 71 && code <= 73)  return { emoji: "❄️",  label: "Neige" };
-  if (code === 75)               return { emoji: "❄️",  label: "Neige forte" };
-  if (code === 77)               return { emoji: "🌨️",  label: "Grésil" };
-  if (code >= 80 && code <= 82)  return { emoji: "🌦️",  label: "Averses" };
-  if (code >= 85 && code <= 86)  return { emoji: "🌨️",  label: "Averses de neige" };
-  if (code === 95)               return { emoji: "⛈️",  label: "Orage" };
-  if (code >= 96 && code <= 99)  return { emoji: "⛈️",  label: "Orage avec grêle" };
-  return { emoji: "🌡️", label: "Inconnu" };
+function wx(code: number): { icon: React.ElementType; label: string } {
+  if (code === 0)                 return { icon: Sun,              label: "Ciel dégagé" };
+  if (code === 1)                 return { icon: CloudSun,         label: "Peu nuageux" };
+  if (code === 2)                 return { icon: CloudSun,         label: "Partiellement nuageux" };
+  if (code === 3)                 return { icon: Cloud,            label: "Couvert" };
+  if (code === 45 || code === 48) return { icon: CloudFog,         label: "Brouillard" };
+  if (code >= 51 && code <= 55)  return { icon: CloudDrizzle,     label: "Bruine" };
+  if (code >= 56 && code <= 57)  return { icon: CloudDrizzle,     label: "Bruine verglaçante" };
+  if (code >= 61 && code <= 63)  return { icon: CloudRain,        label: "Pluie" };
+  if (code === 65)               return { icon: CloudRain,        label: "Pluie forte" };
+  if (code >= 66 && code <= 67)  return { icon: CloudRain,        label: "Pluie verglaçante" };
+  if (code >= 71 && code <= 73)  return { icon: Snowflake,        label: "Neige" };
+  if (code === 75)               return { icon: Snowflake,        label: "Neige forte" };
+  if (code === 77)               return { icon: CloudSnow,        label: "Grésil" };
+  if (code >= 80 && code <= 82)  return { icon: CloudDrizzle,     label: "Averses" };
+  if (code >= 85 && code <= 86)  return { icon: CloudSnow,        label: "Averses de neige" };
+  if (code === 95)               return { icon: CloudLightning,   label: "Orage" };
+  if (code >= 96 && code <= 99)  return { icon: CloudLightning,   label: "Orage avec grêle" };
+  return { icon: Thermometer, label: "Inconnu" };
 }
 
 function dayFR(dateStr: string): string {
@@ -159,7 +162,9 @@ export default function Meteo() {
                 <div className="text-lg font-semibold text-indigo-300 mt-1">{weather!.label}</div>
                 <div className="text-xs text-gray-500 mt-0.5">Ressenti {Math.round(cur!.feelsLike)}°C</div>
               </div>
-              <div className="text-7xl">{weather!.emoji}</div>
+              <div className="text-indigo-300 opacity-80">
+                {React.createElement(weather!.icon, { className: "h-20 w-20" })}
+              </div>
             </div>
             <div className="grid grid-cols-3 gap-3 mt-5 pt-5 border-t relative z-10"
               style={{ borderColor: "rgba(99,102,241,0.15)" }}>
@@ -203,7 +208,7 @@ export default function Meteo() {
                     <span className="text-[9px] text-gray-500 font-mono">
                       {String(hour).padStart(2, "0")}h
                     </span>
-                    <span className="text-base">{wx(h.code).emoji}</span>
+                    {React.createElement(wx(h.code).icon, { className: "h-4 w-4 text-indigo-300" })}
                     <span className={`text-xs font-bold ${isFirst ? "text-indigo-300" : "text-white"}`}>
                       {Math.round(h.temp)}°
                     </span>
@@ -227,7 +232,7 @@ export default function Meteo() {
                 return (
                   <div key={i} className="flex items-center gap-4 px-4 py-3 hover:bg-white/[0.015] transition-colors">
                     <span className="text-xs font-bold text-gray-400 w-20 shrink-0">{dayFR(d.date)}</span>
-                    <span className="text-xl shrink-0">{w.emoji}</span>
+                    {React.createElement(w.icon, { className: "h-5 w-5 shrink-0 text-indigo-400" })}
                     <span className="text-xs text-gray-500 flex-1">{w.label}</span>
                     {d.precip > 0 && (
                       <span className="text-[10px] text-cyan-400 flex items-center gap-1 shrink-0">

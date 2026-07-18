@@ -105,10 +105,10 @@ const SHAPE_OPTS: { id: LogoStyle["shape"]; label: string }[] = [
 ];
 
 const DISC_STATUS_OPTS = [
-  { value: "online",    label: "En ligne 🟢"         },
-  { value: "idle",      label: "Inactif 🟡"          },
-  { value: "dnd",       label: "Ne pas déranger 🔴"  },
-  { value: "invisible", label: "Invisible ⚫"        },
+  { value: "online",    label: "En ligne",        dot: "#22c55e" },
+  { value: "idle",      label: "Inactif",          dot: "#f59e0b" },
+  { value: "dnd",       label: "Ne pas déranger",  dot: "#ef4444" },
+  { value: "invisible", label: "Invisible",         dot: "#6b7280" },
 ];
 
 function BootThumb({ anim }: { anim: string }) {
@@ -275,7 +275,7 @@ export default function Settings() {
     try {
       const r = await axios.post("/api/discord/restart", discordToken ? { token: discordToken } : {});
       const connected = r.data.stats?.connected;
-      setDiscordMsg({ type: connected ? "ok" : "err", text: connected ? "✅ NexusBot reconnecté !" : "❌ Échec de connexion (vérifiez le token)" });
+      setDiscordMsg({ type: connected ? "ok" : "err", text: connected ? "NexusBot reconnecté !" : "Échec de connexion (vérifiez le token)" });
     } catch (err: any) {
       setDiscordMsg({ type: "err", text: `Erreur : ${err.response?.data?.error || err.message}` });
     }

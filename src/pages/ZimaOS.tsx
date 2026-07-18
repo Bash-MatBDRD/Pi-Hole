@@ -215,7 +215,7 @@ function PropertiesModal({ server, accent, onClose }: { server: ZimaStats; accen
                             <span className="text-[10px] font-mono text-gray-600">{disk.transport}</span>
                           </div>
                           <span className="text-[11px] font-semibold"
-                            style={{ color: disk.health.startsWith("✅") ? "#10b981" : disk.health.startsWith("⚠️") ? "#f59e0b" : "#9ca3af" }}>
+                            style={{ color: disk.health === "Bon état" ? "#10b981" : disk.health === "Attention" ? "#f59e0b" : "#9ca3af" }}>
                             {disk.health}
                           </span>
                         </div>
@@ -243,7 +243,7 @@ function PropertiesModal({ server, accent, onClose }: { server: ZimaStats; accen
                 )}
               </section>
 
-              {props.disks.length > 0 && props.disks.every(d => d.health === "❓ N/A (root requis)") && (
+              {props.disks.length > 0 && props.disks.every(d => d.health === "N/A (root requis)") && (
                 <p className="text-[10px] text-gray-700 flex items-center gap-1.5">
                   <AlertTriangle className="h-3 w-3" />
                   Les données S.M.A.R.T nécessitent que <code className="text-gray-600">smartctl</code> soit installé et exécuté avec les droits root.

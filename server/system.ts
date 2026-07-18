@@ -288,7 +288,7 @@ async function getAllDisksSmart(host: HostRecord): Promise<DiskSmart[]> {
         reallocatedSectors: attr("reallocated_sector"),
         pendingSectors: attr("current_pending_sector"),
         uncorrectable: attr("offline_uncorrectable"),
-        health: (healthRaw || "").toLowerCase().includes("passed") ? "✅ Bon état" : (healthRaw || "").trim() ? "⚠️ Attention" : "❓ N/A (root requis)",
+        health: (healthRaw || "").toLowerCase().includes("passed") ? "Bon état" : (healthRaw || "").trim() ? "Attention" : "N/A (root requis)",
         temperature: attr("temperature_celsius"),
         rotational: rota,
       });

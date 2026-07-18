@@ -211,7 +211,11 @@ export default function Dashboard() {
                               borderColor: d.state === "on" || d.state === "open" || d.state === "playing"
                                 ? "rgba(245,158,11,0.2)" : "rgba(255,255,255,0.05)",
                             }}>
-                            {d.type === "light" ? "💡" : d.type === "cover" ? "🪟" : d.type === "switch" ? "🔌" : d.type === "climate" ? "🌡" : d.type === "media_player" ? "🎵" : "📦"}
+                            {(() => {
+                              const m: Record<string, React.ElementType> = { light: Lightbulb, cover: Wind, switch: Zap, climate: Thermometer, media_player: Tv };
+                              const Icon = m[d.type] || HardDrive;
+                              return <Icon className="h-2.5 w-2.5" />;
+                            })()}
                           </div>
                         ))}
                         {devs.length > 4 && <span className="text-[8px] text-gray-700">+{devs.length - 4}</span>}
